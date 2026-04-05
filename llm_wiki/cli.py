@@ -1,6 +1,12 @@
+import hashlib
 from pathlib import Path
 from typing import Optional
 import typer
+import httpx
+from llm_wiki.config import load_config
+from llm_wiki.llm import build_ingest_messages, call_llm
+from llm_wiki.sources import parse_source, chunk_text
+from llm_wiki.wiki import parse_wiki_blocks, write_wiki_blocks, get_ingested_sources
 
 app = typer.Typer(help="LLM Wiki — maintain a personal knowledge wiki with an LLM.")
 
@@ -91,6 +97,93 @@ def init():
     typer.echo("  raw/         <- drop your source files here")
     typer.echo("  wiki/        <- LLM-generated pages (don't edit manually)")
     typer.echo("  schema.md    <- LLM instructions (customize as you go)")
+
+
+@app.command()
+def ingest(path_or_url: Optional[str] = typer.Argument(None)):
+    """Ingest a source file or URL. With no argument, scans raw/ for new files."""
+    project_dir = Path.cwd()
+    config = load_config(project_dir)
+    wiki_dir = project_dir / config.paths.wiki
+    raw_dir = project_dir / config.paths.raw
+
+    if path_or_url is None:
+        ingested = get_ingested_sources(wiki_dir)
+        new_files = [
+            f for f in raw_dir.iterdir()
+            if f.is_file() and f.name not in ingested and not f.name.startswith(".")
+        ]
+        if not new_files:
+            typer.echo("No new files to ingest.")
+            return
+        for f in sorted(new_files):
+            _ingest_one(str(f), config, project_dir)
+    else:
+        if path_or_url.startswith(("http://", "https://")):
+            try:
+                source = parse_source(path_or_url)
+            except httpx.ConnectError:
+                typer.echo(f"Error: could not fetch {path_or_url}", err=True)
+                raise typer.Exit(1)
+            except ValueError as e:
+                typer.echo(f"Error: {e}", err=True)
+                raise typer.Exit(1)
+            if source.raw_bytes:
+                raw_path = raw_dir / source.filename
+                if raw_path.exists():
+                    h = hashlib.md5(path_or_url.encode()).hexdigest()[:4]
+                    raw_path = raw_dir / f"{raw_path.stem}-{h}{raw_path.suffix}"
+                raw_path.write_bytes(source.raw_bytes)
+            _ingest_one_parsed(source.filename, source.text, config, project_dir)
+        else:
+            _ingest_one(path_or_url, config, project_dir)
+
+
+def _ingest_one(path: str, config, project_dir: Path) -> None:
+    """Parse a local file and ingest it."""
+    try:
+        source = parse_source(path)
+    except Exception as e:
+        typer.echo(f"Error reading {path}: {e}", err=True)
+        return
+    _ingest_one_parsed(source.filename, source.text, config, project_dir)
+
+
+def _ingest_one_parsed(filename: str, text: str, config, project_dir: Path) -> None:
+    """Run the LLM ingest loop for already-parsed source text."""
+    wiki_dir = project_dir / config.paths.wiki
+    schema_path = project_dir / config.paths.schema
+    schema = schema_path.read_text() if schema_path.exists() else ""
+    index_path = wiki_dir / "index.md"
+    index = index_path.read_text() if index_path.exists() else ""
+
+    chunks = chunk_text(text)
+    for i, chunk in enumerate(chunks):
+        chunk_label = f"{filename} (part {i+1}/{len(chunks)})" if len(chunks) > 1 else filename
+        typer.echo(f"Ingesting {chunk_label}...")
+
+        messages = build_ingest_messages(schema, index, chunk_label, chunk)
+        try:
+            response = call_llm(config, messages)
+        except Exception as e:
+            if "connection" in str(e).lower() or "connect" in str(e).lower():
+                typer.echo(
+                    f"Cannot connect to {config.llm.base_url} — is it running?", err=True
+                )
+                raise typer.Exit(1)
+            raise
+
+        blocks = parse_wiki_blocks(response)
+        if not blocks:
+            typer.echo(f"Warning: LLM returned no wiki blocks for {chunk_label}.")
+            typer.echo(response)
+            continue
+
+        write_wiki_blocks(project_dir, blocks)
+        if index_path.exists():
+            index = index_path.read_text()
+
+    typer.echo(f"Done: {filename}")
 
 
 @app.command()
