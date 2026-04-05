@@ -1,12 +1,20 @@
 import hashlib
+from datetime import date
 from pathlib import Path
 from typing import Optional
 import typer
 import httpx
 from llm_wiki.config import load_config
-from llm_wiki.llm import build_ingest_messages, call_llm
+from llm_wiki.llm import (
+    build_ingest_messages,
+    build_query_step1_messages,
+    build_query_step2_messages,
+    build_lint_messages,
+    parse_relevant_pages,
+    call_llm,
+)
 from llm_wiki.sources import parse_source, chunk_text
-from llm_wiki.wiki import parse_wiki_blocks, write_wiki_blocks, get_ingested_sources
+from llm_wiki.wiki import parse_wiki_blocks, write_wiki_blocks, get_ingested_sources, read_wiki_pages
 
 app = typer.Typer(help="LLM Wiki — maintain a personal knowledge wiki with an LLM.")
 
@@ -214,3 +222,49 @@ def status():
     typer.echo(f"Wiki pages:    {len(wiki_pages)}")
     typer.echo(f"Raw sources:   {len(raw_files)}")
     typer.echo(f"Last activity: {last_entry}")
+
+
+@app.command()
+def query(
+    question: str = typer.Argument(..., help="Question to ask the wiki"),
+    save: bool = typer.Option(False, "--save", help="Save the answer as a wiki page"),
+):
+    """Ask a question and get an answer synthesized from the wiki."""
+    project_dir = Path.cwd()
+    config = load_config(project_dir)
+    wiki_dir = project_dir / config.paths.wiki
+    schema_path = project_dir / config.paths.schema
+    schema = schema_path.read_text() if schema_path.exists() else ""
+    index_path = wiki_dir / "index.md"
+    index = index_path.read_text() if index_path.exists() else ""
+
+    # Step 1: identify relevant pages
+    step1_messages = build_query_step1_messages(schema, index, question)
+    try:
+        step1_response = call_llm(config, step1_messages)
+    except Exception as e:
+        if "connection" in str(e).lower() or "connect" in str(e).lower():
+            typer.echo(f"Cannot connect to {config.llm.base_url} — is it running?", err=True)
+            raise typer.Exit(1)
+        raise
+
+    relevant = parse_relevant_pages(step1_response)
+    if not relevant:
+        typer.echo("(LLM found no directly relevant pages — answering from index only)")
+        pages_text = index
+    else:
+        pages_text = read_wiki_pages(wiki_dir, relevant)
+
+    # Step 2: synthesize answer
+    step2_messages = build_query_step2_messages(schema, pages_text, question)
+    answer = call_llm(config, step2_messages)
+
+    typer.echo(answer)
+
+    if save:
+        slug = date.today().isoformat()
+        short = "".join(c if c.isalnum() else "-" for c in question[:40]).strip("-")
+        filename = f"query-{slug}-{short}.md"
+        save_path = wiki_dir / filename
+        save_path.write_text(f"# Query: {question}\n\n{answer}\n")
+        typer.echo(f"\nSaved to wiki/{filename}")

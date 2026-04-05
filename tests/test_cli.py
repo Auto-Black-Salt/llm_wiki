@@ -130,3 +130,60 @@ def test_ingest_no_wiki_blocks_warns(project_dir, monkeypatch):
         assert "Warning" in result.output or "warning" in result.output
     finally:
         os.chdir(old_cwd)
+
+
+def test_query_prints_answer(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        (project_dir / "wiki" / "topic-a.md").write_text("# Topic A\nDetailed info about A.")
+        (project_dir / "wiki" / "index.md").write_text(
+            "# Wiki Index\n\n## Concepts\n- [[topic-a]] — info about A\n"
+        )
+
+        step1_response = "```relevant_pages\nwiki/topic-a.md\n```"
+        step2_response = "Topic A is described in [[topic-a]]."
+        responses = iter([step1_response, step2_response])
+        monkeypatch.setattr("llm_wiki.cli.call_llm", lambda cfg, msgs: next(responses))
+
+        result = runner.invoke(app, ["query", "What is Topic A?"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "Topic A" in result.output
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_query_save_flag(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        (project_dir / "wiki" / "index.md").write_text("# Wiki Index\n")
+
+        step1_response = "```relevant_pages\nwiki/index.md\n```"
+        step2_response = "The answer is 42."
+        responses = iter([step1_response, step2_response])
+        monkeypatch.setattr("llm_wiki.cli.call_llm", lambda cfg, msgs: next(responses))
+
+        result = runner.invoke(
+            app, ["query", "What is the answer?", "--save"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        saved = list((project_dir / "wiki").glob("query-*.md"))
+        assert len(saved) == 1
+        assert "42" in saved[0].read_text()
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_query_no_relevant_pages(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        monkeypatch.setattr(
+            "llm_wiki.cli.call_llm", lambda cfg, msgs: "No relevant_pages block here."
+        )
+        result = runner.invoke(app, ["query", "What?"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "no relevant pages" in result.output.lower() or "directly" in result.output.lower()
+    finally:
+        os.chdir(old_cwd)
