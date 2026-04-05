@@ -187,3 +187,35 @@ def test_query_no_relevant_pages(project_dir, monkeypatch):
         assert "no relevant pages" in result.output.lower() or "directly" in result.output.lower()
     finally:
         os.chdir(old_cwd)
+
+
+def test_lint_prints_report(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        (project_dir / "wiki" / "page1.md").write_text("# Page 1\nContent.\n")
+        (project_dir / "wiki" / "page2.md").write_text("# Page 2\nContent.\n")
+
+        monkeypatch.setattr(
+            "llm_wiki.cli.call_llm",
+            lambda cfg, msgs: "## Health Report\n- No contradictions found.\n- 1 orphan page: page2.md\n",
+        )
+        result = runner.invoke(app, ["lint"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "Health Report" in result.output
+        assert "orphan" in result.output
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_lint_empty_wiki(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        monkeypatch.setattr(
+            "llm_wiki.cli.call_llm", lambda cfg, msgs: "Wiki is empty — nothing to lint."
+        )
+        result = runner.invoke(app, ["lint"], catch_exceptions=False)
+        assert result.exit_code == 0
+    finally:
+        os.chdir(old_cwd)

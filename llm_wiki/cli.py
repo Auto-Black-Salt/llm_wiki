@@ -268,3 +268,34 @@ def query(
         save_path = wiki_dir / filename
         save_path.write_text(f"# Query: {question}\n\n{answer}\n")
         typer.echo(f"\nSaved to wiki/{filename}")
+
+
+@app.command()
+def lint():
+    """Health-check the wiki for contradictions, orphans, stale claims, and gaps."""
+    project_dir = Path.cwd()
+    config = load_config(project_dir)
+    wiki_dir = project_dir / config.paths.wiki
+    schema_path = project_dir / config.paths.schema
+    schema = schema_path.read_text() if schema_path.exists() else ""
+
+    all_pages = list(wiki_dir.glob("**/*.md")) if wiki_dir.exists() else []
+    if not all_pages:
+        typer.echo("Wiki is empty — nothing to lint.")
+        return
+
+    pages_content = "\n\n".join(
+        f"--- {p.relative_to(project_dir)} ---\n{p.read_text()}"
+        for p in sorted(all_pages)
+    )
+
+    messages = build_lint_messages(schema, pages_content)
+    try:
+        report = call_llm(config, messages)
+    except Exception as e:
+        if "connection" in str(e).lower() or "connect" in str(e).lower():
+            typer.echo(f"Cannot connect to {config.llm.base_url} — is it running?", err=True)
+            raise typer.Exit(1)
+        raise
+
+    typer.echo(report)
