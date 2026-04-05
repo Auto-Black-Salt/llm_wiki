@@ -25,3 +25,13 @@ def test_config_dataclasses():
     config = Config(llm=llm, paths=paths)
     assert config.llm.provider == "anthropic"
     assert config.paths.wiki == "wiki"
+
+
+def test_load_config_bad_key(tmp_path):
+    (tmp_path / ".wiki-config.toml").write_text(
+        '[llm]\nprovider = "openai"\nmodle = "typo"\n'  # typo: modle instead of model
+        'base_url = ""\napi_key = ""\n\n'
+        '[paths]\nraw = "raw"\nwiki = "wiki"\nschema = "schema.md"\n'
+    )
+    with pytest.raises(ValueError, match="Invalid .wiki-config.toml"):
+        load_config(tmp_path)

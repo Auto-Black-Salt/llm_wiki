@@ -32,7 +32,12 @@ def load_config(project_dir: Path) -> Config:
         )
     with open(config_path, "rb") as f:
         data = tomllib.load(f)
-    return Config(
-        llm=LLMConfig(**data["llm"]),
-        paths=PathsConfig(**data["paths"]),
-    )
+    try:
+        return Config(
+            llm=LLMConfig(**data["llm"]),
+            paths=PathsConfig(**data["paths"]),
+        )
+    except (KeyError, TypeError) as e:
+        raise ValueError(
+            f"Invalid .wiki-config.toml: {e}. Check [llm] and [paths] sections."
+        ) from e

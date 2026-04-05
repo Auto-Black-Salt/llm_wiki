@@ -12,9 +12,12 @@ def parse_wiki_blocks(response: str) -> list[tuple[str, str]]:
 
 def write_wiki_blocks(project_dir: Path, blocks: list[tuple[str, str]]) -> list[Path]:
     """Write parsed wiki blocks to disk. Returns list of written paths."""
+    resolved_root = project_dir.resolve()
     written = []
     for rel_path, content in blocks:
-        full_path = project_dir / rel_path
+        full_path = (project_dir / rel_path).resolve()
+        if not str(full_path).startswith(str(resolved_root)):
+            raise ValueError(f"Refusing to write outside project directory: {rel_path}")
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content)
         written.append(full_path)

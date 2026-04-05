@@ -118,8 +118,11 @@ def ingest(path_or_url: Optional[str] = typer.Argument(None)):
     if path_or_url is None:
         ingested = get_ingested_sources(wiki_dir)
         new_files = [
-            f for f in raw_dir.iterdir()
-            if f.is_file() and f.name not in ingested and not f.name.startswith(".")
+            f for f in raw_dir.rglob("*")
+            if f.is_file()
+            and "assets" not in f.parts
+            and f.name not in ingested
+            and not f.name.startswith(".")
         ]
         if not new_files:
             typer.echo("No new files to ingest.")
@@ -198,9 +201,10 @@ def _ingest_one_parsed(filename: str, text: str, config, project_dir: Path) -> N
 def status():
     """Show wiki stats: page count, source count, last log entry."""
     from llm_wiki.config import load_config
-    config = load_config(Path.cwd())
-    wiki_dir = Path(config.paths.wiki)
-    raw_dir = Path(config.paths.raw)
+    project_dir = Path.cwd()
+    config = load_config(project_dir)
+    wiki_dir = project_dir / config.paths.wiki
+    raw_dir = project_dir / config.paths.raw
 
     wiki_pages = [
         f for f in wiki_dir.glob("**/*.md")
@@ -257,7 +261,13 @@ def query(
 
     # Step 2: synthesize answer
     step2_messages = build_query_step2_messages(schema, pages_text, question)
-    answer = call_llm(config, step2_messages)
+    try:
+        answer = call_llm(config, step2_messages)
+    except Exception as e:
+        if "connection" in str(e).lower() or "connect" in str(e).lower():
+            typer.echo(f"Cannot connect to {config.llm.base_url} — is it running?", err=True)
+            raise typer.Exit(1)
+        raise
 
     typer.echo(answer)
 

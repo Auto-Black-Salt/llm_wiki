@@ -75,3 +75,9 @@ def test_read_wiki_pages_missing_skipped(tmp_path):
     (wiki_dir / "exists.md").write_text("# Exists\n")
     result = read_wiki_pages(wiki_dir, ["wiki/exists.md", "wiki/missing.md"])
     assert "# Exists" in result
+
+
+def test_write_wiki_blocks_path_traversal(tmp_path):
+    blocks = [("../../etc/passwd", "evil")]
+    with pytest.raises(ValueError, match="Refusing to write outside"):
+        write_wiki_blocks(tmp_path, blocks)
