@@ -4,3 +4,14 @@ __pycache__/
 *.egg-info/
 dist/
 .venv/
+uv.lock
+
+# Obsidian
+obsidian_main/
+.trash/
+
+# Claude Code
+.claude/
+
+# Test artifacts
+test-output.xml
