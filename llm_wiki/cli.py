@@ -150,7 +150,14 @@ def ingest(path_or_url: Optional[str] = typer.Argument(None)):
                     h = hashlib.md5(path_or_url.encode()).hexdigest()[:4]
                     raw_path = raw_dir / f"{raw_path.stem}-{h}{raw_path.suffix}"
                 raw_path.write_bytes(source.raw_bytes)
-            _ingest_one_parsed(source.filename, source.text, config, project_dir)
+            docs_link = _write_docs_page(source, config, project_dir)
+            if docs_link:
+                typer.echo(f"Docs page written: {docs_link}")
+            _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link)
+            archive_dir = project_dir / "archive"
+            archive_dir.mkdir(exist_ok=True)
+            (archive_dir / source.filename).write_text(source.text)
+            typer.echo(f"Archived {source.filename} → archive/")
         else:
             _ingest_one(path_or_url, config, project_dir)
 
