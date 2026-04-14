@@ -168,7 +168,11 @@ def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
     docs_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(source.filename).stem
     page_path = docs_dir / f"{stem}.md"
-    page_path.write_text(f"# {stem}\n\n*Source: `{source.filename}`*\n\n{source.text}\n")
+    if Path(source.filename).suffix.lower() == ".md":
+        # Already Markdown — write as-is with a source note prepended
+        page_path.write_text(f"> *Source: `{source.filename}`*\n\n{source.text}\n")
+    else:
+        page_path.write_text(f"# {stem}\n\n*Source: `{source.filename}`*\n\n{source.text}\n")
 
     # Return path relative to vault root (common parent of wiki and docs), without .md
     # e.g. obsidian_main/docs/MyDoc.md → docs/MyDoc  (valid Obsidian [[link]])
