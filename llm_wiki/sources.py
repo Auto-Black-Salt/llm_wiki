@@ -91,7 +91,16 @@ def _parse_docx(path: Path) -> ParsedSource:
     return ParsedSource(filename=path.name, text="\n".join(parts), images=images)
 
 
-_TOC_LINE_RE = re.compile(r'^.{4,}\s*\.{4,}\s*\d+\s*$')
+_DOT_LEADER_RE = re.compile(r'\.{4,}')
+
+
+def _is_toc_page(page) -> bool:
+    """Return True if the page is mostly TOC dot-leader lines."""
+    lines = [l.strip() for l in page.get_text().splitlines() if l.strip()]
+    if not lines:
+        return False
+    toc_lines = sum(1 for l in lines if _DOT_LEADER_RE.search(l))
+    return toc_lines / len(lines) > 0.3
 
 
 def _bbox_overlaps(a: tuple, b: tuple) -> bool:
@@ -141,16 +150,6 @@ def _build_markdown_toc(toc: list) -> str:
     return "\n".join(lines)
 
 
-def _strip_raw_toc(text: str) -> str:
-    """Remove dot-leader TOC lines (e.g. 'Section Title ......... 4') from extracted text."""
-    cleaned = []
-    for line in text.splitlines():
-        if _TOC_LINE_RE.match(line.strip()):
-            continue
-        cleaned.append(line)
-    return "\n".join(cleaned)
-
-
 def _parse_pdf(path: Path) -> ParsedSource:
     import pymupdf  # lazy import — only needed for PDFs
     doc = pymupdf.open(str(path))
@@ -158,6 +157,8 @@ def _parse_pdf(path: Path) -> ParsedSource:
     images = []
     seen_xrefs: set[int] = set()
     for page in doc:
+        if _is_toc_page(page):
+            continue  # replaced by clean Markdown TOC below
         pages_text.append(_page_to_text(page))
         for img_info in page.get_images(full=True):
             xref = img_info[0]
@@ -170,8 +171,7 @@ def _parse_pdf(path: Path) -> ParsedSource:
             images.append((img_filename, img_data["image"]))
             pages_text.append(f"![[assets/{img_filename}]]")
 
-    raw_text = "\n".join(pages_text)
-    clean_text = _strip_raw_toc(raw_text)
+    clean_text = "\n\n".join(pages_text)
 
     toc_md = _build_markdown_toc(doc.get_toc())
     if toc_md:
