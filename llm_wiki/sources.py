@@ -22,6 +22,8 @@ class ParsedSource:
 def parse_source(path_or_url: str) -> ParsedSource:
     """Parse a file path or URL into a ParsedSource."""
     if path_or_url.startswith(("http://", "https://")):
+        if _is_youtube_url(path_or_url):
+            return _fetch_youtube(path_or_url)
         return _fetch_url(path_or_url)
     path = Path(path_or_url)
     if path.suffix.lower() == ".pdf":
@@ -48,6 +50,43 @@ def chunk_text(text: str, max_chars: int = MAX_CHARS) -> list[str]:
         chunks.append(text[:split_at])
         text = text[split_at:].lstrip("\n")
     return chunks
+
+
+def _is_youtube_url(url: str) -> bool:
+    return "youtube.com/watch" in url or "youtu.be/" in url
+
+
+def _extract_video_id(url: str) -> str:
+    if "youtu.be/" in url:
+        return url.split("youtu.be/")[1].split("?")[0].split("/")[0]
+    from urllib.parse import urlparse, parse_qs
+    return parse_qs(urlparse(url).query)["v"][0]
+
+
+def _fetch_youtube(url: str) -> ParsedSource:
+    from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled  # lazy import
+
+    video_id = _extract_video_id(url)
+
+    # Fetch video title from page metadata
+    try:
+        resp = httpx.get(url, follow_redirects=True, timeout=15)
+        title_match = re.search(r'<meta property="og:title" content="([^"]+)"', resp.text)
+        title = title_match.group(1) if title_match else video_id
+    except Exception:
+        title = video_id
+
+    # Fetch transcript (prefer manual, fall back to auto-generated)
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+    except (NoTranscriptFound, TranscriptsDisabled) as e:
+        raise ValueError(f"No transcript available for {url}: {e}") from e
+
+    text = "\n".join(entry["text"] for entry in transcript)
+    slug = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "-")[:60]
+    filename = f"{slug}-{video_id}.md"
+    full_text = f"# {title}\n\n**YouTube:** {url}\n\n## Transcript\n\n{text}"
+    return ParsedSource(filename=filename, text=full_text)
 
 
 def _fetch_url(url: str) -> ParsedSource:
