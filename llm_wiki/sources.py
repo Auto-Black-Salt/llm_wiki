@@ -92,6 +92,7 @@ def _parse_docx(path: Path) -> ParsedSource:
 
 
 _DOT_LEADER_RE = re.compile(r'\.{4,}')
+_ORPHAN_BULLET_RE = re.compile(r'^([•·▪▸]|\d+\.)$')
 
 
 def _is_toc_page(page) -> bool:
@@ -108,8 +109,30 @@ def _bbox_overlaps(a: tuple, b: tuple) -> bool:
     return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
 
 
+def _fix_lists(text: str) -> str:
+    """Join orphaned bullet/number paragraphs with the following paragraph."""
+    paras = text.split("\n\n")
+    result = []
+    i = 0
+    while i < len(paras):
+        stripped = paras[i].strip()
+        if _ORPHAN_BULLET_RE.match(stripped):
+            # Find next non-empty paragraph
+            j = i + 1
+            while j < len(paras) and not paras[j].strip():
+                j += 1
+            if j < len(paras):
+                prefix = "- " if stripped in ('•', '·', '▪', '▸') else stripped + " "
+                result.append(prefix + paras[j].strip())
+                i = j + 1
+                continue
+        result.append(paras[i])
+        i += 1
+    return "\n\n".join(result)
+
+
 def _page_to_text(page) -> str:
-    """Extract page text with tables rendered as Markdown tables."""
+    """Extract page text with tables as Markdown and lists reconstructed."""
     try:
         tabs = page.find_tables()
         table_regions = [(t.bbox, t.to_markdown()) for t in tabs.tables]
@@ -118,8 +141,8 @@ def _page_to_text(page) -> str:
 
     table_bboxes = [bbox for bbox, _ in table_regions]
 
-    # Collect non-table text blocks
-    pieces: list[tuple[float, str]] = []
+    # Collect non-table text blocks with x and y for sorting and grouping
+    pieces: list[tuple[float, float, str]] = []  # (y0, x0, text)
     for block in page.get_text("blocks"):
         x0, y0, x1, y1, text, _, block_type = block
         if block_type != 0:
@@ -129,14 +152,25 @@ def _page_to_text(page) -> str:
             continue
         if any(_bbox_overlaps((x0, y0, x1, y1), tb) for tb in table_bboxes):
             continue
-        pieces.append((y0, text))
+        pieces.append((y0, x0, text))
 
     # Add tables at their vertical position
     for bbox, md in table_regions:
-        pieces.append((bbox[1], md))
+        pieces.append((bbox[1], bbox[0], md))
 
-    pieces.sort(key=lambda p: p[0])
-    return "\n\n".join(text for _, text in pieces)
+    # Sort by y then x so bullet comes before its text on the same line
+    pieces.sort(key=lambda p: (p[0], p[1]))
+
+    # Merge blocks that share the same vertical position (within 5pt) onto one line
+    lines: list[tuple[float, str]] = []
+    for y, _x, text in pieces:
+        if lines and abs(y - lines[-1][0]) < 5:
+            lines[-1] = (lines[-1][0], lines[-1][1] + " " + text)
+        else:
+            lines.append((y, text))
+
+    raw = "\n\n".join(text for _, text in lines)
+    return _fix_lists(raw)
 
 
 def _build_markdown_toc(toc: list) -> str:
