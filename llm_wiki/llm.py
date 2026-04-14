@@ -1,20 +1,24 @@
 import re
+from typing import Optional
 import litellm
 from llm_wiki.config import Config
 
 RELEVANT_PAGES_RE = re.compile(r"```relevant_pages\n(.*?)```", re.DOTALL)
 
-_INGEST_INSTRUCTIONS = """
+_INGEST_INSTRUCTIONS_TEMPLATE = """
 You are a wiki maintainer. When given a source document:
 1. Write or update wiki pages as needed (summaries, entity pages, concept pages).
 2. Output EVERY file change as a fenced block:
-   ```wiki:wiki/page-name.md
+   ```wiki:{wiki_path}/page-name.md
    # Page Title
    ...content...
    ```
-3. Always output updated wiki/index.md and wiki/log.md in the same format.
+3. Always output updated {wiki_path}/index.md and {wiki_path}/log.md in the same format.
 4. Log format for new entry: ## [YYYY-MM-DD] ingest | source:<filename>
    followed by bullet list of created/updated pages.
+5. Do NOT embed images — they are stored in the docs wiki.
+6. On the primary summary page for this source, include this line near the top:
+   {docs_line}
 """.strip()
 
 _QUERY_STEP1_INSTRUCTIONS = """
@@ -40,14 +44,30 @@ Output a clear Markdown report.
 
 
 def build_ingest_messages(
-    schema: str, index: str, filename: str, source_text: str
+    schema: str, index: str, filename: str, source_text: str,
+    wiki_path: str = "wiki", existing_pages: str = "",
+    docs_link: Optional[str] = None,
 ) -> list[dict]:
+    docs_line = (
+        f"**Original document:** [[{docs_link}]]"
+        if docs_link
+        else "(no original document link available)"
+    )
+    instructions = _INGEST_INSTRUCTIONS_TEMPLATE.format(
+        wiki_path=wiki_path,
+        docs_line=docs_line,
+    )
+    existing_section = (
+        f"\n\nExisting wiki pages (update these if relevant, preserving their content):\n{existing_pages}"
+        if existing_pages else ""
+    )
     return [
-        {"role": "system", "content": f"{schema}\n\n{_INGEST_INSTRUCTIONS}"},
+        {"role": "system", "content": f"{schema}\n\n{instructions}"},
         {
             "role": "user",
             "content": (
-                f"Current wiki/index.md:\n{index}\n\n"
+                f"Current {wiki_path}/index.md:\n{index}"
+                f"{existing_section}\n\n"
                 f"New source ({filename}):\n{source_text}\n\n"
                 "Process this source and output all file changes."
             ),
@@ -102,8 +122,9 @@ def parse_relevant_pages(response: str) -> list[str]:
 
 def call_llm(config: Config, messages: list[dict]) -> str:
     """Call LiteLLM with the given messages. Returns response text."""
+    model = f"{config.llm.provider}/{config.llm.model}" if config.llm.provider else config.llm.model
     kwargs: dict = {
-        "model": config.llm.model,
+        "model": model,
         "messages": messages,
     }
     if config.llm.base_url:

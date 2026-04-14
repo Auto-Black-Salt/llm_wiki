@@ -210,7 +210,10 @@ def _read_existing_pages(wiki_dir: Path) -> str:
     )
 
 
-def _ingest_one_parsed(filename: str, text: str, config, project_dir: Path) -> list[Path]:
+def _ingest_one_parsed(
+    filename: str, text: str, config, project_dir: Path,
+    docs_link: Optional[str] = None,
+) -> list[Path]:
     """Run the LLM ingest loop for already-parsed source text. Returns written page paths."""
     wiki_dir = project_dir / config.paths.wiki
     schema_path = project_dir / config.paths.schema
@@ -229,6 +232,7 @@ def _ingest_one_parsed(filename: str, text: str, config, project_dir: Path) -> l
             schema, index, chunk_label, chunk,
             wiki_path=config.paths.wiki,
             existing_pages=existing_pages,
+            docs_link=docs_link,
         )
         try:
             response = call_llm(config, messages)
