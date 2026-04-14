@@ -169,7 +169,12 @@ def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
     stem = Path(source.filename).stem
     page_path = docs_dir / f"{stem}.md"
     page_path.write_text(f"# {stem}\n\n*Source: `{source.filename}`*\n\n{source.text}\n")
-    return str(page_path.relative_to(project_dir))
+
+    # Return path relative to vault root (common parent of wiki and docs), without .md
+    # e.g. obsidian_main/docs/MyDoc.md → docs/MyDoc  (valid Obsidian [[link]])
+    vault_root = Path(config.paths.wiki).parts[0]  # e.g. "obsidian_main"
+    obsidian_link = str(page_path.relative_to(project_dir / vault_root).with_suffix(""))
+    return obsidian_link
 
 
 
