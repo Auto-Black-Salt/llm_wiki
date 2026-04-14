@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 import typer
 import httpx
-from llm_wiki.config import load_config
+from llm_wiki.config import load_config, find_project_dir
 from llm_wiki.llm import (
     build_ingest_messages,
     build_query_step1_messages,
@@ -28,6 +28,7 @@ api_key = "lm-studio"
 [paths]
 raw = "raw"
 wiki = "wiki"
+docs = "docs"
 schema = "schema.md"
 """
 
@@ -80,7 +81,9 @@ def init():
     """Scaffold a new wiki project in the current directory."""
     project_dir = Path.cwd()
     (project_dir / "raw" / "assets").mkdir(parents=True, exist_ok=True)
+    (project_dir / "archive").mkdir(exist_ok=True)
     (project_dir / "wiki").mkdir(exist_ok=True)
+    (project_dir / "docs").mkdir(exist_ok=True)
 
     index_path = project_dir / "wiki" / "index.md"
     if not index_path.exists():
@@ -103,14 +106,15 @@ def init():
 
     typer.echo("Wiki initialized. Directory structure:")
     typer.echo("  raw/         <- drop your source files here")
-    typer.echo("  wiki/        <- LLM-generated pages (don't edit manually)")
+    typer.echo("  docs/        <- original documents as Markdown (with images)")
+    typer.echo("  wiki/        <- LLM-summarized pages (don't edit manually)")
     typer.echo("  schema.md    <- LLM instructions (customize as you go)")
 
 
 @app.command()
 def ingest(path_or_url: Optional[str] = typer.Argument(None)):
     """Ingest a source file or URL. With no argument, scans raw/ for new files."""
-    project_dir = Path.cwd()
+    project_dir = find_project_dir(Path.cwd())
     config = load_config(project_dir)
     wiki_dir = project_dir / config.paths.wiki
     raw_dir = project_dir / config.paths.raw
@@ -150,30 +154,82 @@ def ingest(path_or_url: Optional[str] = typer.Argument(None)):
             _ingest_one(path_or_url, config, project_dir)
 
 
+def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
+    """Write the full document as Markdown to the docs directory. Returns the relative path."""
+    if not config.paths.docs:
+        return None
+    docs_dir = project_dir / config.paths.docs
+    assets_dir = docs_dir / "assets"
+    if source.images:
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        for img_filename, img_data in source.images:
+            (assets_dir / img_filename).write_bytes(img_data)
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(source.filename).stem
+    page_path = docs_dir / f"{stem}.md"
+    page_path.write_text(f"# {stem}\n\n*Source: `{source.filename}`*\n\n{source.text}\n")
+    return str(page_path.relative_to(project_dir))
+
+
+
 def _ingest_one(path: str, config, project_dir: Path) -> None:
-    """Parse a local file and ingest it."""
+    """Parse a local file, write docs page, ingest to llm-wiki, then archive."""
     try:
         source = parse_source(path)
     except Exception as e:
         typer.echo(f"Error reading {path}: {e}", err=True)
         return
-    _ingest_one_parsed(source.filename, source.text, config, project_dir)
+
+    docs_link = _write_docs_page(source, config, project_dir)
+    if docs_link:
+        typer.echo(f"Docs page written: {docs_link}")
+
+    _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link)
+
+    raw_dir = (project_dir / config.paths.raw).resolve()
+    file_path = Path(path).resolve()
+    if str(file_path).startswith(str(raw_dir)):
+        archive_dir = project_dir / "archive"
+        archive_dir.mkdir(exist_ok=True)
+        dest = archive_dir / file_path.name
+        file_path.rename(dest)
+        typer.echo(f"Archived {file_path.name} → archive/")
 
 
-def _ingest_one_parsed(filename: str, text: str, config, project_dir: Path) -> None:
-    """Run the LLM ingest loop for already-parsed source text."""
+def _read_existing_pages(wiki_dir: Path) -> str:
+    """Read all existing wiki pages (excluding index and log) into a single string."""
+    pages = sorted(
+        p for p in wiki_dir.glob("**/*.md")
+        if p.name not in ("index.md", "log.md")
+    )
+    if not pages:
+        return ""
+    return "\n\n".join(
+        f"--- {p.relative_to(wiki_dir.parent)} ---\n{p.read_text()}"
+        for p in pages
+    )
+
+
+def _ingest_one_parsed(filename: str, text: str, config, project_dir: Path) -> list[Path]:
+    """Run the LLM ingest loop for already-parsed source text. Returns written page paths."""
     wiki_dir = project_dir / config.paths.wiki
     schema_path = project_dir / config.paths.schema
     schema = schema_path.read_text() if schema_path.exists() else ""
     index_path = wiki_dir / "index.md"
     index = index_path.read_text() if index_path.exists() else ""
+    all_written: list[Path] = []
 
     chunks = chunk_text(text)
     for i, chunk in enumerate(chunks):
         chunk_label = f"{filename} (part {i+1}/{len(chunks)})" if len(chunks) > 1 else filename
         typer.echo(f"Ingesting {chunk_label}...")
 
-        messages = build_ingest_messages(schema, index, chunk_label, chunk)
+        existing_pages = _read_existing_pages(wiki_dir) if i > 0 else ""
+        messages = build_ingest_messages(
+            schema, index, chunk_label, chunk,
+            wiki_path=config.paths.wiki,
+            existing_pages=existing_pages,
+        )
         try:
             response = call_llm(config, messages)
         except Exception as e:
@@ -190,18 +246,19 @@ def _ingest_one_parsed(filename: str, text: str, config, project_dir: Path) -> N
             typer.echo(response)
             continue
 
-        write_wiki_blocks(project_dir, blocks)
+        written = write_wiki_blocks(project_dir, blocks)
+        all_written.extend(written)
         if index_path.exists():
             index = index_path.read_text()
 
     typer.echo(f"Done: {filename}")
+    return all_written
 
 
 @app.command()
 def status():
     """Show wiki stats: page count, source count, last log entry."""
-    from llm_wiki.config import load_config
-    project_dir = Path.cwd()
+    project_dir = find_project_dir(Path.cwd())
     config = load_config(project_dir)
     wiki_dir = project_dir / config.paths.wiki
     raw_dir = project_dir / config.paths.raw
@@ -234,7 +291,7 @@ def query(
     save: bool = typer.Option(False, "--save", help="Save the answer as a wiki page"),
 ):
     """Ask a question and get an answer synthesized from the wiki."""
-    project_dir = Path.cwd()
+    project_dir = find_project_dir(Path.cwd())
     config = load_config(project_dir)
     wiki_dir = project_dir / config.paths.wiki
     schema_path = project_dir / config.paths.schema
@@ -283,7 +340,7 @@ def query(
 @app.command()
 def lint():
     """Health-check the wiki for contradictions, orphans, stale claims, and gaps."""
-    project_dir = Path.cwd()
+    project_dir = find_project_dir(Path.cwd())
     config = load_config(project_dir)
     wiki_dir = project_dir / config.paths.wiki
     schema_path = project_dir / config.paths.schema
