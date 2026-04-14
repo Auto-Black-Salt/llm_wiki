@@ -164,10 +164,13 @@ def _page_to_text(page) -> str:
     # Sort by y then x so bullet comes before its text on the same line
     pieces.sort(key=lambda p: (p[0], p[1]))
 
-    # Merge blocks that share the same vertical position (within 5pt) onto one line
+    # Merge blocks that share the same vertical position (within 5pt) onto one line.
+    # Never merge multiline content (tables) — they must stay as their own paragraph.
     lines: list[tuple[float, str]] = []
     for y, _x, text in pieces:
-        if lines and abs(y - lines[-1][0]) < 5:
+        is_table = "\n" in text
+        prev_is_table = lines and "\n" in lines[-1][1]
+        if lines and not is_table and not prev_is_table and abs(y - lines[-1][0]) < 5:
             lines[-1] = (lines[-1][0], lines[-1][1] + " " + text)
         else:
             lines.append((y, text))
