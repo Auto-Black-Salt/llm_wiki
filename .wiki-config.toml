@@ -1,0 +1,11 @@
+[llm]
+provider = "openai"
+model = "local-model"
+base_url = "http://localhost:1234/v1"
+api_key = "lm-studio"
+
+[paths]
+raw = "raw"
+wiki = "obsidian_main/llm-wiki"
+docs = "obsidian_main/docs"
+schema = "schema.md"
