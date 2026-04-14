@@ -18,6 +18,8 @@ def write_wiki_blocks(project_dir: Path, blocks: list[tuple[str, str]]) -> list[
         full_path = (project_dir / rel_path).resolve()
         if not str(full_path).startswith(str(resolved_root)):
             raise ValueError(f"Refusing to write outside project directory: {rel_path}")
+        if full_path.name == "log.md":
+            continue  # log is append-only, managed by cli
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content)
         written.append(full_path)
@@ -36,9 +38,9 @@ def get_ingested_sources(wiki_dir: Path) -> set[str]:
 def read_wiki_pages(wiki_dir: Path, page_paths: list[str]) -> str:
     """Read wiki pages by path, skip missing ones, return concatenated content."""
     parts = []
+    wiki_prefix = str(wiki_dir.name) + "/"
     for rel_path in page_paths:
-        # strip leading "wiki/" prefix if present to get path within wiki_dir
-        name = rel_path.removeprefix("wiki/")
+        name = rel_path.removeprefix(wiki_prefix).removeprefix("wiki/")
         full_path = wiki_dir / name
         if full_path.exists():
             parts.append(f"--- {rel_path} ---\n{full_path.read_text()}")

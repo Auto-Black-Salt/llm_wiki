@@ -256,6 +256,21 @@ def _ingest_one_parsed(
         if index_path.exists():
             index = index_path.read_text()
 
+    # Append log entry (never overwrite — log is append-only)
+    non_meta = [
+        p for p in all_written
+        if p.name not in ("index.md", "log.md")
+    ]
+    if non_meta:
+        log_path = wiki_dir / "log.md"
+        entry_lines = [f"## [{date.today().isoformat()}] ingest | source:{filename}"]
+        for p in non_meta:
+            rel = p.relative_to(project_dir)
+            entry_lines.append(f"- {rel}")
+        entry_lines.append("")
+        with log_path.open("a") as f:
+            f.write("\n".join(entry_lines) + "\n")
+
     typer.echo(f"Done: {filename}")
     return all_written
 

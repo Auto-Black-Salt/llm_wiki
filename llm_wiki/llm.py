@@ -13,9 +13,8 @@ You are a wiki maintainer. When given a source document:
    # Page Title
    ...content...
    ```
-3. Always output updated {wiki_path}/index.md and {wiki_path}/log.md in the same format.
-4. Log format for new entry: ## [YYYY-MM-DD] ingest | source:<filename>
-   followed by bullet list of created/updated pages.
+3. Always output an updated {wiki_path}/index.md in the same format.
+4. Do NOT output {wiki_path}/log.md — it is managed automatically.
 5. Do NOT embed images — they are stored in the docs wiki.
 6. On the primary summary page for this source, include this line near the top:
    {docs_line}
