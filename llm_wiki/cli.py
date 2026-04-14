@@ -1,4 +1,5 @@
 import hashlib
+import re as _re
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -289,6 +290,14 @@ def status():
     typer.echo(f"Last activity: {last_entry}")
 
 
+_DOCS_LINK_RE = _re.compile(r'\[\[([^\]]*docs[^\]]*)\]\]')
+
+
+def _extract_docs_links(pages_text: str) -> list[str]:
+    """Extract all [[...docs...]] links found in wiki page content."""
+    return list(dict.fromkeys(_DOCS_LINK_RE.findall(pages_text)))
+
+
 @app.command()
 def query(
     question: str = typer.Argument(..., help="Question to ask the wiki"),
@@ -331,6 +340,12 @@ def query(
         raise
 
     typer.echo(answer)
+
+    docs_links = _extract_docs_links(pages_text)
+    if docs_links:
+        typer.echo("\n**Original documents:**")
+        for link in docs_links:
+            typer.echo(f"  [[{link}]]")
 
     if save:
         slug = date.today().isoformat()
