@@ -113,7 +113,10 @@ def init():
 
 
 @app.command()
-def ingest(path_or_url: Optional[str] = typer.Argument(None)):
+def ingest(
+    path_or_url: Optional[str] = typer.Argument(None),
+    update: bool = typer.Option(False, "--update", help="Re-ingest and update existing wiki pages."),
+):
     """Ingest a source file or URL. With no argument, scans raw/ for new files."""
     project_dir = find_project_dir(Path.cwd())
     config = load_config(project_dir)
@@ -144,6 +147,10 @@ def ingest(path_or_url: Optional[str] = typer.Argument(None)):
             except ValueError as e:
                 typer.echo(f"Error: {e}", err=True)
                 raise typer.Exit(1)
+            ingested = get_ingested_sources(wiki_dir)
+            if source.filename in ingested and not update:
+                typer.echo(f"Already ingested: {source.filename}. Use --update to re-ingest.")
+                return
             if source.raw_bytes:
                 raw_path = raw_dir / source.filename
                 if raw_path.exists():
@@ -153,13 +160,18 @@ def ingest(path_or_url: Optional[str] = typer.Argument(None)):
             docs_link = _write_docs_page(source, config, project_dir)
             if docs_link:
                 typer.echo(f"Docs page written: {docs_link}")
-            _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link)
+            _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link, is_update=update)
             archive_dir = project_dir / "archive"
             archive_dir.mkdir(exist_ok=True)
             (archive_dir / source.filename).write_text(source.text)
             typer.echo(f"Archived {source.filename} → archive/")
         else:
-            _ingest_one(path_or_url, config, project_dir)
+            ingested = get_ingested_sources(wiki_dir)
+            filename = Path(path_or_url).name
+            if filename in ingested and not update:
+                typer.echo(f"Already ingested: {filename}. Use --update to re-ingest.")
+                return
+            _ingest_one(path_or_url, config, project_dir, is_update=update)
 
 
 def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
@@ -189,7 +201,7 @@ def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
 
 
 
-def _ingest_one(path: str, config, project_dir: Path) -> None:
+def _ingest_one(path: str, config, project_dir: Path, is_update: bool = False) -> None:
     """Parse a local file, write docs page, ingest to llm-wiki, then archive."""
     try:
         source = parse_source(path)
@@ -201,7 +213,7 @@ def _ingest_one(path: str, config, project_dir: Path) -> None:
     if docs_link:
         typer.echo(f"Docs page written: {docs_link}")
 
-    _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link)
+    _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link, is_update=is_update)
 
     raw_dir = (project_dir / config.paths.raw).resolve()
     file_path = Path(path).resolve()
@@ -230,6 +242,7 @@ def _read_existing_pages(wiki_dir: Path) -> str:
 def _ingest_one_parsed(
     filename: str, text: str, config, project_dir: Path,
     docs_link: Optional[str] = None,
+    is_update: bool = False,
 ) -> list[Path]:
     """Run the LLM ingest loop for already-parsed source text. Returns written page paths."""
     wiki_dir = project_dir / config.paths.wiki
@@ -242,14 +255,15 @@ def _ingest_one_parsed(
     chunks = chunk_text(text)
     for i, chunk in enumerate(chunks):
         chunk_label = f"{filename} (part {i+1}/{len(chunks)})" if len(chunks) > 1 else filename
-        typer.echo(f"Ingesting {chunk_label}...")
+        typer.echo(f"{'Updating' if is_update else 'Ingesting'} {chunk_label}...")
 
-        existing_pages = _read_existing_pages(wiki_dir) if i > 0 else ""
+        existing_pages = _read_existing_pages(wiki_dir) if (i > 0 or is_update) else ""
         messages = build_ingest_messages(
             schema, index, chunk_label, chunk,
             wiki_path=config.paths.wiki,
             existing_pages=existing_pages,
             docs_link=docs_link,
+            is_update=is_update,
         )
         try:
             response = call_llm(config, messages)
@@ -267,7 +281,7 @@ def _ingest_one_parsed(
             typer.echo(response)
             continue
 
-        written = write_wiki_blocks(project_dir, blocks)
+        written = write_wiki_blocks(project_dir, blocks, wiki_dir=wiki_dir)
         all_written.extend(written)
         if index_path.exists():
             index = index_path.read_text()

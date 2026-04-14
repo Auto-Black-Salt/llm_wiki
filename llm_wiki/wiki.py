@@ -10,9 +10,19 @@ def parse_wiki_blocks(response: str) -> list[tuple[str, str]]:
     return [(m.group(1).strip(), m.group(2)) for m in WIKI_BLOCK_RE.finditer(response)]
 
 
-def write_wiki_blocks(project_dir: Path, blocks: list[tuple[str, str]]) -> list[Path]:
-    """Write parsed wiki blocks to disk. Returns list of written paths."""
+def write_wiki_blocks(
+    project_dir: Path,
+    blocks: list[tuple[str, str]],
+    wiki_dir: Path | None = None,
+) -> list[Path]:
+    """Write parsed wiki blocks to disk. Returns list of written paths.
+
+    If wiki_dir is given, any block whose resolved path falls outside wiki_dir
+    is remapped into wiki_dir (preserving only the filename), preventing the
+    LLM from accidentally writing to the wrong directory.
+    """
     resolved_root = project_dir.resolve()
+    resolved_wiki = wiki_dir.resolve() if wiki_dir else None
     written = []
     for rel_path, content in blocks:
         full_path = (project_dir / rel_path).resolve()
@@ -20,6 +30,10 @@ def write_wiki_blocks(project_dir: Path, blocks: list[tuple[str, str]]) -> list[
             raise ValueError(f"Refusing to write outside project directory: {rel_path}")
         if full_path.name == "log.md":
             continue  # log is append-only, managed by cli
+        # Enforce wiki directory boundary — remap stray paths
+        if resolved_wiki and not str(full_path).startswith(str(resolved_wiki) + "/"):
+            remapped = resolved_wiki / full_path.name
+            full_path = remapped
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content)
         written.append(full_path)

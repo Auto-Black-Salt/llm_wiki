@@ -1,6 +1,7 @@
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass
@@ -16,12 +17,23 @@ class PathsConfig:
     raw: str
     wiki: str
     schema: str
+    docs: Optional[str] = None
 
 
 @dataclass
 class Config:
     llm: LLMConfig
     paths: PathsConfig
+
+
+def find_project_dir(start: Path) -> Path:
+    """Walk up from start until .wiki-config.toml is found."""
+    for directory in [start, *start.parents]:
+        if (directory / ".wiki-config.toml").exists():
+            return directory
+    raise FileNotFoundError(
+        f"No .wiki-config.toml found in {start} or any parent. Run 'llm-wiki init' first."
+    )
 
 
 def load_config(project_dir: Path) -> Config:
