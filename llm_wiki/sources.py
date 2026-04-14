@@ -64,7 +64,7 @@ def _extract_video_id(url: str) -> str:
 
 
 def _fetch_youtube(url: str) -> ParsedSource:
-    from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled  # lazy import
+    from youtube_transcript_api import YouTubeTranscriptApi  # lazy import
 
     video_id = _extract_video_id(url)
 
@@ -76,13 +76,20 @@ def _fetch_youtube(url: str) -> ParsedSource:
     except Exception:
         title = video_id
 
-    # Fetch transcript (prefer manual, fall back to auto-generated)
+    # Fetch transcript — try all available languages if English not found
+    api = YouTubeTranscriptApi()
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-    except (NoTranscriptFound, TranscriptsDisabled) as e:
-        raise ValueError(f"No transcript available for {url}: {e}") from e
+        transcript = api.fetch(video_id)
+    except Exception:
+        try:
+            transcript_list = api.list(video_id)
+            transcript = transcript_list.find_transcript(
+                [t.language_code for t in transcript_list]
+            ).fetch()
+        except Exception as e:
+            raise ValueError(f"No transcript available for {url}: {e}") from e
 
-    text = "\n".join(entry["text"] for entry in transcript)
+    text = "\n".join(snippet.text for snippet in transcript)
     slug = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "-")[:60]
     filename = f"{slug}-{video_id}.md"
     full_text = f"# {title}\n\n**YouTube:** {url}\n\n## Transcript\n\n{text}"
