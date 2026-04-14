@@ -135,7 +135,10 @@ def _page_to_text(page) -> str:
     """Extract page text with tables as Markdown and lists reconstructed."""
     try:
         tabs = page.find_tables()
-        table_regions = [(t.bbox, t.to_markdown()) for t in tabs.tables]
+        table_regions = [
+            (t.bbox, re.sub(r'<br\s*/?>', ' ', t.to_markdown()))
+            for t in tabs.tables
+        ]
     except Exception:
         table_regions = []
 
