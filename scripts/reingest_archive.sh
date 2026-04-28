@@ -34,7 +34,7 @@ fi
 
 for source in "${SOURCES[@]}"; do
   echo "Ingesting ${source}"
-  "${VENV_PYTHON}" -m llm_wiki.cli ingest "${source}"
+  llm-wiki ingest "${source}"
 done
 
 echo "Done."
