@@ -2,6 +2,12 @@
 
 This file tracks the tool versions for the `llm-wiki` project.
 
+## 0.9.2
+
+- Reduced query prompt size by extracting focused excerpts from large docs pages
+- Improved query latency for topics buried deep inside the original documents
+- Kept the docs/wiki split intact while making answer synthesis cheaper
+
 ## 0.9.1
 
 - Made ingest summaries denser so source facts, routes, and examples are preserved better

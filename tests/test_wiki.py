@@ -1,6 +1,12 @@
 import pytest
 from pathlib import Path
-from llm_wiki.wiki import parse_wiki_blocks, write_wiki_blocks, get_ingested_sources, read_wiki_pages
+from llm_wiki.wiki import (
+    parse_wiki_blocks,
+    write_wiki_blocks,
+    get_ingested_sources,
+    read_wiki_pages,
+    read_project_pages,
+)
 
 
 def test_parse_wiki_blocks_single():
@@ -84,6 +90,29 @@ def test_read_wiki_pages_missing_skipped(tmp_path):
     (wiki_dir / "exists.md").write_text("# Exists\n")
     result = read_wiki_pages(wiki_dir, ["wiki/exists.md", "wiki/missing.md"])
     assert "# Exists" in result
+
+
+def test_read_project_pages_uses_focused_excerpt(tmp_path):
+    project_dir = tmp_path
+    wiki_dir = project_dir / "wiki"
+    docs_dir = project_dir / "obsidian_main" / "docs"
+    docs_dir.mkdir(parents=True)
+    wiki_dir.mkdir()
+    page = docs_dir / "ops.md"
+    page.write_text(
+        "# Intro\n" + ("filler text\n" * 200) + "## Triangle route example OS\n"
+        "3 Legs OS 213 VIE - LEJ OS 213 LEJ - NUE OS 213 NUE - VIE\n" + ("tail\n" * 200)
+    )
+    result = read_project_pages(
+        project_dir,
+        ["docs/ops.md"],
+        wiki_dir,
+        docs_dir,
+        question="What do you know about Triangle route?",
+    )
+    assert "Triangle route example OS" in result
+    assert "3 Legs OS 213 VIE - LEJ" in result
+    assert len(result) < len(page.read_text())
 
 
 def test_write_wiki_blocks_path_traversal(tmp_path):

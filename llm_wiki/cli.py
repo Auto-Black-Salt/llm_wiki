@@ -681,7 +681,8 @@ def query(
         pages_text = index
     else:
         typer.echo(f"query: reading {len(relevant)} page(s)")
-        pages_text = read_project_pages(project_dir, relevant, wiki_dir, docs_dir)
+        typer.echo("query: extracting focused excerpts")
+        pages_text = read_project_pages(project_dir, relevant, wiki_dir, docs_dir, question=question)
 
     # Step 2: synthesize answer
     typer.echo("query: asking the model to synthesize an answer")
