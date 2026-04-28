@@ -9,6 +9,7 @@ uv.lock
 # Obsidian
 obsidian_main/
 raw/
+.docling-models/
 .trash/
 
 # Claude Code

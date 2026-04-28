@@ -20,7 +20,7 @@ class ParsedSource:
     source_path: Optional[str] = None
 
 
-def parse_source(path_or_url: str) -> ParsedSource:
+def parse_source(path_or_url: str, docling_artifacts_path: Optional[Path] = None) -> ParsedSource:
     """Parse a file path or URL into a ParsedSource."""
     if path_or_url.startswith(("http://", "https://")):
         if _is_youtube_url(path_or_url):
@@ -28,7 +28,7 @@ def parse_source(path_or_url: str) -> ParsedSource:
         return _fetch_url(path_or_url)
     path = Path(path_or_url)
     if path.suffix.lower() in (".pdf", ".docx", ".doc"):
-        return _parse_docling(path)
+        return _parse_docling(path, docling_artifacts_path=docling_artifacts_path)
     return ParsedSource(filename=path.name, text=path.read_text(), source_path=str(path))
 
 
@@ -110,7 +110,7 @@ def _fetch_url(url: str) -> ParsedSource:
     return ParsedSource(filename=filename, text=text, raw_bytes=response.content)
 
 
-def _parse_docling(path: Path) -> ParsedSource:
+def _parse_docling(path: Path, docling_artifacts_path: Optional[Path] = None) -> ParsedSource:
     try:
         from docling.document_converter import DocumentConverter
     except ModuleNotFoundError as e:
@@ -120,7 +120,21 @@ def _parse_docling(path: Path) -> ParsedSource:
         ) from e
 
     try:
-        converter = DocumentConverter()
+        format_options = None
+        if path.suffix.lower() == ".pdf":
+            from docling.document_converter import PdfFormatOption
+            from docling.datamodel.base_models import InputFormat
+            from docling.datamodel.pipeline_options import PdfPipelineOptions
+
+            format_options = {}
+            pipeline_options = PdfPipelineOptions(
+                artifacts_path=docling_artifacts_path,
+                enable_remote_services=False,
+            )
+            format_options[InputFormat.PDF] = PdfFormatOption(
+                pipeline_options=pipeline_options
+            )
+        converter = DocumentConverter(format_options=format_options) if format_options else DocumentConverter()
         result = converter.convert(str(path))
         text = result.document.export_to_markdown()
     except Exception as e:

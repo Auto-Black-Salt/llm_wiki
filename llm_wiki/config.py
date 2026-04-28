@@ -18,6 +18,7 @@ class PathsConfig:
     wiki: str
     schema: str
     docs: Optional[str] = None
+    docling_artifacts_path: Optional[str] = None
 
 
 @dataclass

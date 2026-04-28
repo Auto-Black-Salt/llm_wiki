@@ -73,6 +73,7 @@ api_key = "lm-studio"
 raw = "raw"
 wiki = "wiki"
 docs = "docs"
+docling_artifacts_path = ".docling-models"
 schema = "schema.md"
 """
 
@@ -128,6 +129,7 @@ def init():
     (project_dir / "archive").mkdir(exist_ok=True)
     (project_dir / "wiki").mkdir(exist_ok=True)
     (project_dir / "docs").mkdir(exist_ok=True)
+    (project_dir / ".docling-models").mkdir(exist_ok=True)
 
     index_path = project_dir / "wiki" / "index.md"
     if not index_path.exists():
@@ -151,6 +153,7 @@ def init():
     typer.echo("Wiki initialized. Directory structure:")
     typer.echo("  raw/         <- drop your source files here")
     typer.echo("  docs/        <- original documents as Markdown (with images)")
+    typer.echo("  .docling-models/ <- local Docling model artifacts")
     typer.echo("  wiki/        <- LLM-summarized pages (don't edit manually)")
     typer.echo("  schema.md    <- LLM instructions (customize as you go)")
 
@@ -176,6 +179,7 @@ def config_show():
     typer.echo(f'wiki = "{config.paths.wiki}"')
     typer.echo(f'schema = "{config.paths.schema}"')
     typer.echo(f'docs = "{config.paths.docs}"')
+    typer.echo(f'docling_artifacts_path = "{config.paths.docling_artifacts_path}"')
 
 
 @app.command()
@@ -197,6 +201,17 @@ def doctor():
     else:
         typer.echo("docling: missing")
         problems.append("Install docling in the active environment.")
+
+    docling_artifacts_path = _resolve_docling_artifacts_path(project_dir, config)
+    if docling_artifacts_path.exists() and any(docling_artifacts_path.iterdir()):
+        typer.echo(f"docling artifacts: OK ({docling_artifacts_path})")
+    else:
+        state = "missing" if not docling_artifacts_path.exists() else "empty"
+        typer.echo(f"docling artifacts: {state} ({docling_artifacts_path})")
+        problems.append(
+            "Docling artifacts are missing. Download them once with `docling-tools models download --output-dir .docling-models` "
+            f"and point DOCLING_ARTIFACTS_PATH or .wiki-config.toml at {docling_artifacts_path}."
+        )
 
     models = _fetch_available_models(config.llm.base_url)
     if models:
@@ -270,6 +285,15 @@ def _fetch_available_models(base_url: str) -> list[str]:
     return list(dict.fromkeys(models))
 
 
+def _resolve_docling_artifacts_path(project_dir: Path, config) -> Path:
+    """Return the local Docling artifacts directory for this project."""
+    artifacts_path = config.paths.docling_artifacts_path or ".docling-models"
+    artifacts_dir = Path(artifacts_path)
+    if not artifacts_dir.is_absolute():
+        artifacts_dir = project_dir / artifacts_dir
+    return artifacts_dir
+
+
 def _read_project_version() -> str:
     """Read the project version from pyproject.toml."""
     project_root = Path(__file__).resolve().parent.parent
@@ -305,6 +329,7 @@ def ingest(
     config = load_config(project_dir)
     wiki_dir = project_dir / config.paths.wiki
     raw_dir = project_dir / config.paths.raw
+    docling_artifacts_path = _resolve_docling_artifacts_path(project_dir, config)
 
     if path_or_url is None:
         ingested = get_ingested_sources(wiki_dir)
@@ -319,7 +344,7 @@ def ingest(
             typer.echo("No new files to ingest.")
             return
         for f in sorted(new_files):
-            _ingest_one(str(f), config, project_dir)
+            _ingest_one(str(f), config, project_dir, docling_artifacts_path=docling_artifacts_path)
     else:
         if path_or_url.startswith(("http://", "https://")):
             try:
@@ -340,7 +365,7 @@ def ingest(
                     h = hashlib.md5(path_or_url.encode()).hexdigest()[:4]
                     raw_path = raw_dir / f"{raw_path.stem}-{h}{raw_path.suffix}"
                 raw_path.write_bytes(source.raw_bytes)
-            docs_link = _write_docs_page(source, config, project_dir)
+            docs_link = _write_docs_page(source, config, project_dir, docling_artifacts_path=docling_artifacts_path)
             if docs_link:
                 typer.echo(f"Docs page written: {docs_link}")
             _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link, is_update=update)
@@ -354,10 +379,10 @@ def ingest(
             if filename in ingested and not update:
                 typer.echo(f"Already ingested: {filename}. Use --update to re-ingest.")
                 return
-            _ingest_one(path_or_url, config, project_dir, is_update=update)
+            _ingest_one(path_or_url, config, project_dir, is_update=update, docling_artifacts_path=docling_artifacts_path)
 
 
-def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
+def _write_docs_page(source, config, project_dir: Path, docling_artifacts_path: Optional[Path] = None) -> Optional[str]:
     """Write the full document as Markdown to the docs directory. Returns the relative path."""
     if not config.paths.docs:
         return None
@@ -370,7 +395,7 @@ def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
     source_path = getattr(source, "source_path", None)
     if source_path and Path(source_path).suffix.lower() in {".pdf", ".docx", ".doc"}:
         try:
-            _write_docling_docs_page(source_path, page_path, assets_dir)
+            _write_docling_docs_page(source_path, page_path, assets_dir, docling_artifacts_path=docling_artifacts_path)
             page_markdown = page_path.read_text()
             page_path.write_text(f"> *Source: `{source.filename}`*\n\n{page_markdown}\n")
         except Exception as e:
@@ -387,25 +412,42 @@ def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
     else:
         page_path.write_text(f"# {stem}\n\n*Source: `{source.filename}`*\n\n{source.text}\n")
 
-    # Return path relative to vault root (common parent of wiki and docs), without .md
+    # Return path relative to the docs vault root, without .md
     # e.g. obsidian_main/docs/MyDoc.md → docs/MyDoc  (valid Obsidian [[link]])
-    vault_root = Path(config.paths.wiki).parts[0]  # e.g. "obsidian_main"
-    obsidian_link = str(page_path.relative_to(project_dir / vault_root).with_suffix(""))
+    obsidian_link = str(page_path.relative_to(docs_dir.parent).with_suffix(""))
     return obsidian_link
 
 
-def _write_docling_docs_page(source_path: str, page_path: Path, assets_dir: Path) -> None:
+def _write_docling_docs_page(
+    source_path: str,
+    page_path: Path,
+    assets_dir: Path,
+    docling_artifacts_path: Optional[Path] = None,
+) -> None:
     """Convert a local source document to Markdown with referenced images."""
     try:
         from docling.document_converter import DocumentConverter
         from docling_core.types.doc import ImageRefMode
+        from docling.document_converter import PdfFormatOption
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
     except ModuleNotFoundError as e:
         raise ValueError(
             "Document conversion requires the 'docling' package. "
             "Install it in the active environment."
         ) from e
 
-    converter = DocumentConverter()
+    format_options = {}
+    if Path(source_path).suffix.lower() == ".pdf":
+        pipeline_options = PdfPipelineOptions(
+            artifacts_path=docling_artifacts_path,
+            enable_remote_services=False,
+        )
+        format_options[InputFormat.PDF] = PdfFormatOption(
+            pipeline_options=pipeline_options
+        )
+
+    converter = DocumentConverter(format_options=format_options) if format_options else DocumentConverter()
     result = converter.convert(source_path)
     assets_dir.mkdir(parents=True, exist_ok=True)
     result.document.save_as_markdown(
@@ -428,15 +470,29 @@ def _rewrite_docs_asset_links(page_path: Path, assets_dir: Path) -> None:
 
 
 
-def _ingest_one(path: str, config, project_dir: Path, is_update: bool = False) -> None:
+def _ingest_one(
+    path: str,
+    config,
+    project_dir: Path,
+    is_update: bool = False,
+    docling_artifacts_path: Optional[Path] = None,
+) -> None:
     """Parse a local file, write docs page, ingest to llm-wiki, then archive."""
     try:
-        source = parse_source(path)
+        source = parse_source(
+            path,
+            docling_artifacts_path=docling_artifacts_path or _resolve_docling_artifacts_path(project_dir, config),
+        )
     except Exception as e:
         typer.echo(f"Error reading {path}: {e}", err=True)
         return
 
-    docs_link = _write_docs_page(source, config, project_dir)
+    docs_link = _write_docs_page(
+        source,
+        config,
+        project_dir,
+        docling_artifacts_path=docling_artifacts_path or _resolve_docling_artifacts_path(project_dir, config),
+    )
     if docs_link:
         typer.echo(f"Docs page written: {docs_link}")
 

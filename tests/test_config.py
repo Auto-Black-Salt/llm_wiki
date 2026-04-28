@@ -12,6 +12,7 @@ def test_load_config(project_dir):
     assert config.paths.raw == "raw"
     assert config.paths.wiki == "wiki"
     assert config.paths.schema == "schema.md"
+    assert config.paths.docling_artifacts_path == ".docling-models"
 
 
 def test_load_config_missing(tmp_path):

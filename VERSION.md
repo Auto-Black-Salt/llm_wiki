@@ -2,6 +2,12 @@
 
 This file tracks the tool versions for the `llm-wiki` project.
 
+## 0.7.0
+
+- Added a project-local Docling artifacts path for PDF conversion
+- Wired Docling to use local artifacts instead of implicit Hub downloads at runtime
+- Documented the local Docling setup in the README and doctor command
+
 ## 0.6.0
 
 - Kept source document images in `obsidian_main/docs/assets/<document>/`

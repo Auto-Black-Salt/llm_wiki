@@ -22,6 +22,7 @@ cd llm_wiki
 uv venv
 uv sync
 source .venv/bin/activate
+docling-tools models download --output-dir .docling-models
 ```
 
 If you already have the repo checked out, just run:
@@ -30,6 +31,7 @@ If you already have the repo checked out, just run:
 uv venv
 uv sync
 source .venv/bin/activate
+docling-tools models download --output-dir .docling-models
 ```
 
 ## Quick Start
@@ -61,6 +63,7 @@ scripts/reingest_archive.sh
 - Python 3.11+
 - An LM Studio-compatible server on `http://localhost:1234/v1` by default
 - `docling` installed in the active environment
+- local Docling artifacts in `.docling-models/` for offline PDF conversion
 
 You can verify the environment with:
 
@@ -85,6 +88,7 @@ api_key = "lm-studio"
 raw = "raw"
 wiki = "obsidian_main/llm-wiki"
 docs = "obsidian_main/docs"
+docling_artifacts_path = ".docling-models"
 schema = "schema.md"
 ```
 
@@ -151,6 +155,7 @@ Then it replays every supported source in `archive/` through `llm-wiki ingest`.
 
 - `obsidian_main/docs/` contains the original document Markdown pages
 - `obsidian_main/docs/assets/<document>/` contains extracted images grouped by source document
+- `.docling-models/` contains the local Docling model artifacts
 - `obsidian_main/llm-wiki/` contains the synthesized wiki pages
 - `obsidian_main/llm-wiki/log.md` records ingests
 - `obsidian_main/llm-wiki/index.md` is the wiki entry point
@@ -159,9 +164,16 @@ Then it replays every supported source in `archive/` through `llm-wiki ingest`.
 
 `llm-wiki doctor` checks:
 - whether `docling` is installed
+- whether local Docling artifacts exist at the configured path
 - whether the configured LLM endpoint responds
 
 It prints a visible probe line before the LLM request, so it is obvious when the check is running.
+
+To pre-download the Docling model artifacts into the local project cache:
+
+```bash
+docling-tools models download
+```
 
 ## Notes
 

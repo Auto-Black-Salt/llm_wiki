@@ -1,6 +1,4 @@
 import pytest
-import sys
-import types
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from llm_wiki.sources import parse_source, ParsedSource, chunk_text
@@ -64,11 +62,7 @@ def test_parse_pdf_uses_docling(tmp_path, monkeypatch):
             assert source == str(pdf_path)
             return FakeResult()
 
-    fake_docling = types.ModuleType("docling")
-    fake_converter_module = types.ModuleType("docling.document_converter")
-    fake_converter_module.DocumentConverter = lambda: FakeConverter()
-    monkeypatch.setitem(sys.modules, "docling", fake_docling)
-    monkeypatch.setitem(sys.modules, "docling.document_converter", fake_converter_module)
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", lambda **kwargs: FakeConverter())
 
     result = parse_source(str(pdf_path))
 
@@ -96,11 +90,7 @@ def test_parse_word_docs_uses_docling(tmp_path, monkeypatch, ext):
             assert source == str(path)
             return FakeResult()
 
-    fake_docling = types.ModuleType("docling")
-    fake_converter_module = types.ModuleType("docling.document_converter")
-    fake_converter_module.DocumentConverter = lambda: FakeConverter()
-    monkeypatch.setitem(sys.modules, "docling", fake_docling)
-    monkeypatch.setitem(sys.modules, "docling.document_converter", fake_converter_module)
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", lambda **kwargs: FakeConverter())
 
     result = parse_source(str(path))
 

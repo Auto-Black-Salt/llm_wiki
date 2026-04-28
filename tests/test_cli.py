@@ -1,6 +1,4 @@
 import os
-import sys
-import types
 import pytest
 from typer.testing import CliRunner
 from pathlib import Path
@@ -29,6 +27,7 @@ def test_init_creates_structure(tmp_path):
         assert (tmp_path / "raw").is_dir()
         assert (tmp_path / "raw" / "assets").is_dir()
         assert (tmp_path / "wiki").is_dir()
+        assert (tmp_path / ".docling-models").is_dir()
         assert (tmp_path / "wiki" / "index.md").exists()
         assert (tmp_path / "wiki" / "log.md").exists()
         assert (tmp_path / "schema.md").exists()
@@ -67,7 +66,7 @@ def test_config_show(project_dir):
 def test_version_command():
     result = runner.invoke(app, ["version"], catch_exceptions=False)
     assert result.exit_code == 0
-    assert "llm-wiki 0.6.0" in result.output
+    assert "llm-wiki 0.7.0" in result.output
     assert "Version history: VERSION.md" in result.output
 
 
@@ -103,9 +102,7 @@ def test_write_docs_page_preserves_images(project_dir, monkeypatch):
                 assert source == str(source_path)
                 return FakeResult()
 
-        fake_converter_module = types.ModuleType("docling.document_converter")
-        fake_converter_module.DocumentConverter = lambda: FakeConverter()
-        monkeypatch.setitem(sys.modules, "docling.document_converter", fake_converter_module)
+        monkeypatch.setattr("docling.document_converter.DocumentConverter", lambda **kwargs: FakeConverter())
 
         docs_link = _write_docs_page(source, config, project_dir)
 
@@ -149,6 +146,7 @@ def test_doctor_reports_ok(project_dir, monkeypatch):
         result = runner.invoke(app, ["doctor"], catch_exceptions=False)
         assert result.exit_code == 0
         assert "docling: OK" in result.output
+        assert "docling artifacts: OK" in result.output
         assert "available models:" in result.output
         assert "llm: probing configured model (local-model)..." in result.output
         assert "llm: OK" in result.output
