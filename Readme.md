@@ -11,6 +11,7 @@ The workflow is:
 - write original document pages into `obsidian_main/docs/`
 - write synthesized wiki pages into `obsidian_main/llm-wiki/`
 - query and lint the wiki through the CLI
+- optionally use a local semantic retrieval path for queries
 
 ## Install
 
@@ -107,6 +108,7 @@ Available commands:
 - `llm-wiki init`
 - `llm-wiki ingest`
 - `llm-wiki query`
+- `llm-wiki query --semantic`
 - `llm-wiki lint`
 - `llm-wiki status`
 - `llm-wiki config show`
@@ -119,6 +121,7 @@ llm-wiki init
 llm-wiki ingest archive/Ops-DM\ -\ Version\ 2-v558-20260413_200239.pdf
 llm-wiki ingest
 llm-wiki query "What are the main themes?"
+llm-wiki query --semantic "What are the main themes?"
 llm-wiki lint
 llm-wiki status
 llm-wiki config show
@@ -159,6 +162,7 @@ Then it replays every supported source in `archive/` through `llm-wiki ingest`.
 - `obsidian_main/llm-wiki/` contains the synthesized wiki pages
 - `obsidian_main/llm-wiki/log.md` records ingests
 - `obsidian_main/llm-wiki/index.md` is the wiki entry point
+- `llm-wiki query --semantic` uses a local TF-IDF retrieval path instead of the LLM page selector
 
 ## Doctor
 

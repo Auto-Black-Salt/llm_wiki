@@ -66,7 +66,7 @@ def test_config_show(project_dir):
 def test_version_command():
     result = runner.invoke(app, ["version"], catch_exceptions=False)
     assert result.exit_code == 0
-    assert "llm-wiki 0.7.0" in result.output
+    assert "llm-wiki 0.8.0" in result.output
     assert "Version history: VERSION.md" in result.output
 
 
@@ -301,6 +301,23 @@ def test_query_prints_answer(project_dir, monkeypatch):
         result = runner.invoke(app, ["query", "What is Topic A?"], catch_exceptions=False)
         assert result.exit_code == 0
         assert "Topic A" in result.output
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_query_semantic_uses_local_retrieval(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        (project_dir / "wiki" / "alpha.md").write_text("# Alpha\nBananas apples oranges.")
+        (project_dir / "wiki" / "beta.md").write_text("# Beta\nSpace rockets and moons.")
+        (project_dir / "wiki" / "index.md").write_text("# Wiki Index\n")
+
+        monkeypatch.setattr("llm_wiki.cli.call_llm", lambda cfg, msgs: "Semantic answer.")
+
+        result = runner.invoke(app, ["query", "--semantic", "apples and bananas"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "Semantic answer." in result.output
     finally:
         os.chdir(old_cwd)
 

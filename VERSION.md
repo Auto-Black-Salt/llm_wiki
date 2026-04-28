@@ -2,6 +2,12 @@
 
 This file tracks the tool versions for the `llm-wiki` project.
 
+## 0.8.0
+
+- Added `llm-wiki query --semantic` with a local TF-IDF retrieval path
+- Kept semantic retrieval fully offline and free of Hugging Face dependencies
+- Documented the new query mode in the README
+
 ## 0.7.0
 
 - Added a project-local Docling artifacts path for PDF conversion

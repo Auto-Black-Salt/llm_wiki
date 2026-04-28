@@ -20,6 +20,7 @@ from llm_wiki.llm import (
 )
 from llm_wiki.sources import parse_source, chunk_text
 from llm_wiki.wiki import parse_wiki_blocks, write_wiki_blocks, get_ingested_sources, read_wiki_pages
+from llm_wiki.semantic import semantic_relevant_pages
 
 app = typer.Typer(help="LLM Wiki — maintain a personal knowledge wiki with an LLM.")
 config_app = typer.Typer(help="Inspect the active project configuration.")
@@ -631,6 +632,7 @@ def _extract_docs_links(pages_text: str) -> list[str]:
 def query(
     question: str = typer.Argument(..., help="Question to ask the wiki"),
     save: bool = typer.Option(False, "--save", help="Save the answer as a wiki page"),
+    semantic: bool = typer.Option(False, "--semantic", help="Use local TF-IDF page retrieval instead of LLM page selection."),
 ):
     """Ask a question and get an answer synthesized from the wiki."""
     project_dir = find_project_dir(Path.cwd())
@@ -641,17 +643,20 @@ def query(
     index_path = wiki_dir / "index.md"
     index = index_path.read_text() if index_path.exists() else ""
 
-    # Step 1: identify relevant pages
-    step1_messages = build_query_step1_messages(schema, index, question)
-    try:
-        step1_response = call_llm(config, step1_messages)
-    except Exception as e:
-        if "connection" in str(e).lower() or "connect" in str(e).lower():
-            typer.echo(f"Cannot connect to {config.llm.base_url} — is it running?", err=True)
-            raise typer.Exit(1)
-        raise
+    if semantic:
+        relevant = semantic_relevant_pages(wiki_dir, question)
+    else:
+        # Step 1: identify relevant pages
+        step1_messages = build_query_step1_messages(schema, index, question)
+        try:
+            step1_response = call_llm(config, step1_messages)
+        except Exception as e:
+            if "connection" in str(e).lower() or "connect" in str(e).lower():
+                typer.echo(f"Cannot connect to {config.llm.base_url} — is it running?", err=True)
+                raise typer.Exit(1)
+            raise
 
-    relevant = parse_relevant_pages(step1_response)
+        relevant = parse_relevant_pages(step1_response)
     if not relevant:
         typer.echo("(LLM found no directly relevant pages — answering from index only)")
         pages_text = index
