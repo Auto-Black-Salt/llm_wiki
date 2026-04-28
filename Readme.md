@@ -2,6 +2,8 @@
 
 LLM Wiki is a small CLI for maintaining an Obsidian-based knowledge base with an LLM.
 
+Licensed under the MIT License. See [LICENSE](LICENSE).
+
 The workflow is:
 - keep raw sources in `raw/` or `archive/`
 - convert PDFs and other source files into Markdown
