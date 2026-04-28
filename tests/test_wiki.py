@@ -36,6 +36,15 @@ def test_write_wiki_blocks(tmp_path):
     assert (tmp_path / "wiki" / "subdir" / "other.md").read_text() == "# Other\n"
 
 
+def test_write_wiki_blocks_strips_images(tmp_path):
+    blocks = [
+        ("wiki/page.md", "# Title\n\n![Figure](assets/doc/figure.png)\ncontent\n"),
+    ]
+    write_wiki_blocks(tmp_path, blocks)
+    assert "![Figure]" not in (tmp_path / "wiki" / "page.md").read_text()
+    assert "content" in (tmp_path / "wiki" / "page.md").read_text()
+
+
 def test_get_ingested_sources_empty(tmp_path):
     wiki_dir = tmp_path / "wiki"
     wiki_dir.mkdir()

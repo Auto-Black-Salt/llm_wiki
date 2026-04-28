@@ -3,6 +3,7 @@
 LLM Wiki is a small CLI for maintaining an Obsidian-based knowledge base with an LLM.
 
 Licensed under the MIT License. See [LICENSE](LICENSE).
+Version history: [VERSION.md](VERSION.md)
 
 The workflow is:
 - keep raw sources in `raw/` or `archive/`
@@ -50,6 +51,7 @@ scripts/reingest_archive.sh
 
 - Ingests local files or URLs
 - Converts PDFs and office documents to Markdown with `docling`
+- Keeps extracted images in `obsidian_main/docs/assets/<document>/` when the source contains figures or pictures
 - Writes docs pages and wiki pages separately
 - Tracks ingests in `wiki/log.md`
 - Supports query, lint, status, config inspection, and environment checks
@@ -148,7 +150,7 @@ Then it replays every supported source in `archive/` through `llm-wiki ingest`.
 ## Output Layout
 
 - `obsidian_main/docs/` contains the original document Markdown pages
-- `obsidian_main/docs/assets/` contains extracted images
+- `obsidian_main/docs/assets/<document>/` contains extracted images grouped by source document
 - `obsidian_main/llm-wiki/` contains the synthesized wiki pages
 - `obsidian_main/llm-wiki/log.md` records ingests
 - `obsidian_main/llm-wiki/index.md` is the wiki entry point

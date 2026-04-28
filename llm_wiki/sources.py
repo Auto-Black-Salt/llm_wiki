@@ -17,6 +17,7 @@ class ParsedSource:
     text: str
     raw_bytes: Optional[bytes] = None
     images: list[tuple[str, bytes]] = field(default_factory=list)  # (filename, data)
+    source_path: Optional[str] = None
 
 
 def parse_source(path_or_url: str) -> ParsedSource:
@@ -28,7 +29,7 @@ def parse_source(path_or_url: str) -> ParsedSource:
     path = Path(path_or_url)
     if path.suffix.lower() in (".pdf", ".docx", ".doc"):
         return _parse_docling(path)
-    return ParsedSource(filename=path.name, text=path.read_text())
+    return ParsedSource(filename=path.name, text=path.read_text(), source_path=str(path))
 
 
 def chunk_text(text: str, max_chars: int = MAX_CHARS) -> list[str]:
@@ -128,4 +129,4 @@ def _parse_docling(path: Path) -> ParsedSource:
     if not text.strip():
         raise ValueError(f"Docling produced empty Markdown for {path}")
 
-    return ParsedSource(filename=path.name, text=text)
+    return ParsedSource(filename=path.name, text=text, source_path=str(path))

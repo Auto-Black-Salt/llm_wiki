@@ -7,6 +7,7 @@ from llm_wiki.llm import (
     build_query_step2_messages,
     build_lint_messages,
     parse_relevant_pages,
+    strip_image_markdown,
     call_llm,
 )
 
@@ -84,6 +85,14 @@ def test_parse_relevant_pages_blank_lines():
     response = "```relevant_pages\nwiki/page1.md\n\nwiki/page2.md\n```"
     pages = parse_relevant_pages(response)
     assert pages == ["wiki/page1.md", "wiki/page2.md"]
+
+
+def test_strip_image_markdown():
+    text = "# Title\n\nText ![Figure](assets/doc/figure.png) more text."
+    cleaned = strip_image_markdown(text)
+    assert "![Figure]" not in cleaned
+    assert "Text" in cleaned
+    assert "more text" in cleaned
 
 
 def test_call_llm(config):

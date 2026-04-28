@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+from llm_wiki.llm import strip_image_markdown
+
 WIKI_BLOCK_RE = re.compile(r"```wiki:([^\n]+)\n(.*?)```", re.DOTALL)
 LOG_SOURCE_RE = re.compile(r"^## \[.*?\] ingest \| source:(.+)$", re.MULTILINE)
 
@@ -35,7 +37,7 @@ def write_wiki_blocks(
             remapped = resolved_wiki / full_path.name
             full_path = remapped
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content)
+        full_path.write_text(strip_image_markdown(content))
         written.append(full_path)
     return written
 

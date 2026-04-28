@@ -1,7 +1,12 @@
 import os
+import sys
+import types
 import pytest
 from typer.testing import CliRunner
-from llm_wiki.cli import app
+from pathlib import Path
+from types import SimpleNamespace
+from llm_wiki.cli import app, _write_docs_page
+from llm_wiki.sources import ParsedSource
 
 runner = CliRunner()
 
@@ -55,6 +60,61 @@ def test_config_show(project_dir):
         assert "Project:" in result.output
         assert "model = \"local-model\"" in result.output
         assert "wiki = \"wiki\"" in result.output
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_version_command():
+    result = runner.invoke(app, ["version"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "llm-wiki 0.5.0" in result.output
+    assert "Version history: VERSION.md" in result.output
+
+
+def test_write_docs_page_preserves_images(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        source_path = project_dir / "raw" / "report.pdf"
+        source_path.write_bytes(b"%PDF-1.4\n")
+        source = ParsedSource(
+            filename="report.pdf",
+            text="# Report\nConverted text",
+            source_path=str(source_path),
+        )
+        config = SimpleNamespace(paths=SimpleNamespace(wiki="obsidian_main/wiki", docs="obsidian_main/docs"))
+
+        class FakeDocument:
+            def save_as_markdown(self, filename, artifacts_dir=None, image_mode=None):
+                assert Path(filename) == project_dir / "obsidian_main" / "docs" / "report.md"
+                assert artifacts_dir == project_dir / "obsidian_main" / "docs" / "assets" / "report"
+                assert getattr(image_mode, "name", None) == "REFERENCED"
+                artifacts_dir.mkdir(parents=True, exist_ok=True)
+                (artifacts_dir / "figure-1.png").write_bytes(b"img")
+                Path(filename).write_text(
+                    f"# Report\n\n![Figure]({artifacts_dir.resolve().as_posix()}/figure-1.png)\n"
+                )
+
+        class FakeResult:
+            document = FakeDocument()
+
+        class FakeConverter:
+            def convert(self, source):
+                assert source == str(source_path)
+                return FakeResult()
+
+        fake_converter_module = types.ModuleType("docling.document_converter")
+        fake_converter_module.DocumentConverter = lambda: FakeConverter()
+        monkeypatch.setitem(sys.modules, "docling.document_converter", fake_converter_module)
+
+        docs_link = _write_docs_page(source, config, project_dir)
+
+        assert docs_link == "docs/report"
+        page_text = (project_dir / "obsidian_main" / "docs" / "report.md").read_text()
+        assert "Source: `report.pdf`" in page_text
+        assert "assets/report/figure-1.png" in page_text
+        assert str((project_dir / "obsidian_main" / "docs" / "assets" / "report").resolve()) not in page_text
+        assert (project_dir / "obsidian_main" / "docs" / "assets" / "report" / "figure-1.png").exists()
     finally:
         os.chdir(old_cwd)
 

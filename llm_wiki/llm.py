@@ -122,6 +122,14 @@ def build_lint_messages(schema: str, pages: str) -> list[dict]:
     ]
 
 
+_IMAGE_MARKDOWN_RE = re.compile(r"!\[[^\]]*\]\((?:[^()\\]|\\.|(?:\([^()]*\)))*\)")
+
+
+def strip_image_markdown(text: str) -> str:
+    """Remove Markdown image references from a document."""
+    return _IMAGE_MARKDOWN_RE.sub("", text)
+
+
 def parse_relevant_pages(response: str) -> list[str]:
     """Extract page paths from a ```relevant_pages ... ``` block."""
     match = RELEVANT_PAGES_RE.search(response)

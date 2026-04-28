@@ -7,6 +7,7 @@ from typing import Optional
 import click
 import typer
 import httpx
+import tomllib
 from llm_wiki.config import load_config, find_project_dir
 from llm_wiki.llm import (
     build_ingest_messages,
@@ -14,6 +15,7 @@ from llm_wiki.llm import (
     build_query_step2_messages,
     build_lint_messages,
     parse_relevant_pages,
+    strip_image_markdown,
     call_llm,
 )
 from llm_wiki.sources import parse_source, chunk_text
@@ -24,6 +26,13 @@ config_app = typer.Typer(help="Inspect the active project configuration.")
 
 
 app.add_typer(config_app, name="config")
+
+
+@app.command()
+def version():
+    """Print the installed package version and version history file."""
+    typer.echo(f"llm-wiki {_read_project_version()}")
+    typer.echo("Version history: VERSION.md")
 
 
 @app.callback(invoke_without_command=True)
@@ -37,6 +46,7 @@ def main(ctx: typer.Context):
     typer.echo("Available commands:")
     typer.echo("  init    Scaffold a new wiki project in the current directory")
     typer.echo("  config  Inspect the active project configuration")
+    typer.echo("  version Print the installed package version")
     typer.echo("  ingest  Ingest a source file, URL, or all new files in raw/")
     typer.echo("  query   Ask a question against the wiki")
     typer.echo("  lint    Check the wiki for contradictions, orphans, and gaps")
@@ -46,6 +56,7 @@ def main(ctx: typer.Context):
     typer.echo("Examples:")
     typer.echo("  llm-wiki init")
     typer.echo("  llm-wiki config show")
+    typer.echo("  llm-wiki version")
     typer.echo("  llm-wiki doctor")
     typer.echo("  llm-wiki ingest archive/example.pdf")
     typer.echo("  llm-wiki query 'What changed?'\n")
@@ -259,6 +270,15 @@ def _fetch_available_models(base_url: str) -> list[str]:
     return list(dict.fromkeys(models))
 
 
+def _read_project_version() -> str:
+    """Read the project version from pyproject.toml."""
+    project_root = Path(__file__).resolve().parent.parent
+    pyproject_path = project_root / "pyproject.toml"
+    with pyproject_path.open("rb") as f:
+        data = tomllib.load(f)
+    return str(data["project"]["version"])
+
+
 def _update_config_model(project_dir: Path, model: str) -> None:
     """Update the [llm].model entry in .wiki-config.toml in place."""
     config_path = project_dir / ".wiki-config.toml"
@@ -342,15 +362,26 @@ def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
     if not config.paths.docs:
         return None
     docs_dir = project_dir / config.paths.docs
-    assets_dir = docs_dir / "assets"
-    if source.images:
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        for img_filename, img_data in source.images:
-            (assets_dir / img_filename).write_bytes(img_data)
     docs_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(source.filename).stem
     page_path = docs_dir / f"{stem}.md"
-    if Path(source.filename).suffix.lower() == ".md":
+    assets_dir = docs_dir / "assets" / stem
+
+    source_path = getattr(source, "source_path", None)
+    if source_path and Path(source_path).suffix.lower() in {".pdf", ".docx", ".doc"}:
+        try:
+            _write_docling_docs_page(source_path, page_path, assets_dir)
+            page_markdown = page_path.read_text()
+            page_path.write_text(f"> *Source: `{source.filename}`*\n\n{page_markdown}\n")
+        except Exception as e:
+            typer.echo(
+                f"Warning: could not preserve images in {source.filename}: {e}",
+                err=True,
+            )
+            page_path.write_text(
+                f"> *Source: `{source.filename}`*\n\n{source.text}\n"
+            )
+    elif Path(source.filename).suffix.lower() == ".md":
         # Already Markdown — write as-is with a source note prepended
         page_path.write_text(f"> *Source: `{source.filename}`*\n\n{source.text}\n")
     else:
@@ -361,6 +392,39 @@ def _write_docs_page(source, config, project_dir: Path) -> Optional[str]:
     vault_root = Path(config.paths.wiki).parts[0]  # e.g. "obsidian_main"
     obsidian_link = str(page_path.relative_to(project_dir / vault_root).with_suffix(""))
     return obsidian_link
+
+
+def _write_docling_docs_page(source_path: str, page_path: Path, assets_dir: Path) -> None:
+    """Convert a local source document to Markdown with referenced images."""
+    try:
+        from docling.document_converter import DocumentConverter
+        from docling_core.types.doc import ImageRefMode
+    except ModuleNotFoundError as e:
+        raise ValueError(
+            "Document conversion requires the 'docling' package. "
+            "Install it in the active environment."
+        ) from e
+
+    converter = DocumentConverter()
+    result = converter.convert(source_path)
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    result.document.save_as_markdown(
+        page_path,
+        artifacts_dir=assets_dir,
+        image_mode=ImageRefMode.REFERENCED,
+    )
+    _rewrite_docs_asset_links(page_path, assets_dir)
+
+
+def _rewrite_docs_asset_links(page_path: Path, assets_dir: Path) -> None:
+    """Normalize Docling image links to be relative to the docs page."""
+    page_text = page_path.read_text()
+    asset_root = assets_dir.resolve().as_posix()
+    relative_root = assets_dir.relative_to(page_path.parent).as_posix()
+    page_text = page_text.replace(asset_root, relative_root)
+    if asset_root != str(assets_dir):
+        page_text = page_text.replace(str(assets_dir.resolve()), relative_root)
+    page_path.write_text(page_text)
 
 
 
@@ -415,6 +479,7 @@ def _ingest_one_parsed(
     index = index_path.read_text() if index_path.exists() else ""
     all_written: list[Path] = []
 
+    text = strip_image_markdown(text)
     chunks = chunk_text(text)
     for i, chunk in enumerate(chunks):
         chunk_label = f"{filename} (part {i+1}/{len(chunks)})" if len(chunks) > 1 else filename

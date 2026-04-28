@@ -14,6 +14,7 @@ def test_parse_text_file(tmp_path):
     assert result.filename == "notes.txt"
     assert result.text == "Hello world"
     assert result.raw_bytes is None
+    assert result.source_path == str(f)
 
 
 def test_parse_md_file(tmp_path):
@@ -22,6 +23,7 @@ def test_parse_md_file(tmp_path):
     result = parse_source(str(f))
     assert result.filename == "notes.md"
     assert result.text == "# Title\ncontent"
+    assert result.source_path == str(f)
 
 
 def test_parse_url():
@@ -74,6 +76,7 @@ def test_parse_pdf_uses_docling(tmp_path, monkeypatch):
     assert result.filename == "paper.pdf"
     assert result.text == "# Title\n\nConverted text"
     assert result.images == []
+    assert result.source_path == str(pdf_path)
 
 
 @pytest.mark.parametrize("ext", ["docx", "doc"])
@@ -105,6 +108,7 @@ def test_parse_word_docs_uses_docling(tmp_path, monkeypatch, ext):
     assert result.filename == path.name
     assert result.text == "# Word Title\n\nConverted word text"
     assert result.images == []
+    assert result.source_path == str(path)
 
 
 def test_chunk_text_short():
