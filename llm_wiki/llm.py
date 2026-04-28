@@ -18,6 +18,11 @@ You are a wiki maintainer. When given a source document:
 5. Do NOT embed images — they are stored in the docs wiki.
 6. On the primary summary page for this source, include this line near the top:
    {docs_line}
+7. Make the primary summary page information-dense:
+   - preserve the source's actual sections, names, routes, values, and examples
+   - include concrete facts and short bullet lists instead of a vague high-level summary
+   - if the source has a table, list, checklist, or numbered steps, capture the important rows or steps
+   - keep the page readable, but bias toward more useful details for future retrieval
 """.strip()
 
 _INGEST_ACTION = "Write or update"

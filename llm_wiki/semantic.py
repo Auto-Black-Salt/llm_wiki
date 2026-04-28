@@ -10,12 +10,15 @@ _STOP_WORDS = {
 }
 
 
-def semantic_relevant_pages(wiki_dir: Path, question: str, limit: int = 5) -> list[str]:
-    """Return the most relevant wiki pages using a local TF-IDF ranking."""
-    pages = sorted(
-        p for p in wiki_dir.glob("**/*.md")
-        if p.name not in ("index.md", "log.md")
-    )
+def semantic_relevant_pages(
+    project_dir: Path,
+    question: str,
+    wiki_dir: Path,
+    docs_dir: Path | None = None,
+    limit: int = 5,
+) -> list[str]:
+    """Return the most relevant wiki and docs pages using a local TF-IDF ranking."""
+    pages = _collect_pages(wiki_dir, docs_dir)
     if not pages:
         return []
 
@@ -35,11 +38,24 @@ def semantic_relevant_pages(wiki_dir: Path, question: str, limit: int = 5) -> li
 
     ranked = sorted(ranked, key=lambda item: item[1], reverse=True)
     relevant = [
-        f"{wiki_dir.name}/{page.relative_to(wiki_dir).as_posix()}"
+        page.relative_to(project_dir).as_posix()
         for page, score in ranked
         if score > 0
     ]
     return relevant[:limit]
+
+
+def _collect_pages(wiki_dir: Path, docs_dir: Path | None) -> list[Path]:
+    pages = [
+        p for p in wiki_dir.glob("**/*.md")
+        if p.name not in ("index.md", "log.md")
+    ]
+    if docs_dir and docs_dir.exists():
+        pages.extend(
+            p for p in docs_dir.glob("**/*.md")
+            if p.name != "index.md"
+        )
+    return sorted(dict.fromkeys(pages))
 
 
 def _tokenize(text: str) -> list[str]:

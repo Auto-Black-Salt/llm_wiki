@@ -39,6 +39,7 @@ def test_build_ingest_messages():
     assert "article.md" in messages[1]["content"]
     assert "Some article text" in messages[1]["content"]
     assert "## Pages" in messages[1]["content"]
+    assert "information-dense" in messages[0]["content"]
 
 
 def test_build_query_step1_messages():

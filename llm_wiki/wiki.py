@@ -61,3 +61,23 @@ def read_wiki_pages(wiki_dir: Path, page_paths: list[str]) -> str:
         if full_path.exists():
             parts.append(f"--- {rel_path} ---\n{full_path.read_text()}")
     return "\n\n".join(parts)
+
+
+def read_project_pages(
+    project_dir: Path,
+    page_paths: list[str],
+    wiki_dir: Path,
+    docs_dir: Path | None = None,
+) -> str:
+    """Read wiki and docs pages by path, skip missing ones, return concatenated content."""
+    parts = []
+    for rel_path in page_paths:
+        if rel_path.startswith(f"{wiki_dir.name}/"):
+            full_path = wiki_dir / rel_path.removeprefix(f"{wiki_dir.name}/")
+        elif docs_dir and rel_path.startswith(f"{docs_dir.name}/"):
+            full_path = docs_dir / rel_path.removeprefix(f"{docs_dir.name}/")
+        else:
+            full_path = project_dir / rel_path
+        if full_path.exists():
+            parts.append(f"--- {rel_path} ---\n{full_path.read_text()}")
+    return "\n\n".join(parts)

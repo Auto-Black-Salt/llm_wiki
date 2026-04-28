@@ -19,7 +19,7 @@ from llm_wiki.llm import (
     call_llm,
 )
 from llm_wiki.sources import parse_source, chunk_text
-from llm_wiki.wiki import parse_wiki_blocks, write_wiki_blocks, get_ingested_sources, read_wiki_pages
+from llm_wiki.wiki import parse_wiki_blocks, write_wiki_blocks, get_ingested_sources, read_project_pages
 from llm_wiki.semantic import semantic_relevant_pages
 
 app = typer.Typer(help="LLM Wiki — maintain a personal knowledge wiki with an LLM.")
@@ -345,10 +345,12 @@ def ingest(
             typer.echo("No new files to ingest.")
             return
         for f in sorted(new_files):
+            typer.echo(f"ingest: scanning {f.relative_to(project_dir)}")
             _ingest_one(str(f), config, project_dir, docling_artifacts_path=docling_artifacts_path)
     else:
         if path_or_url.startswith(("http://", "https://")):
             try:
+                typer.echo(f"ingest: fetching {path_or_url}")
                 source = parse_source(path_or_url)
             except httpx.ConnectError:
                 typer.echo(f"Error: could not fetch {path_or_url}", err=True)
@@ -369,6 +371,7 @@ def ingest(
             docs_link = _write_docs_page(source, config, project_dir, docling_artifacts_path=docling_artifacts_path)
             if docs_link:
                 typer.echo(f"Docs page written: {docs_link}")
+            typer.echo(f"ingest: summarizing {source.filename}")
             _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link, is_update=update)
             archive_dir = project_dir / "archive"
             archive_dir.mkdir(exist_ok=True)
@@ -380,6 +383,7 @@ def ingest(
             if filename in ingested and not update:
                 typer.echo(f"Already ingested: {filename}. Use --update to re-ingest.")
                 return
+            typer.echo(f"ingest: reading {path_or_url}")
             _ingest_one(path_or_url, config, project_dir, is_update=update, docling_artifacts_path=docling_artifacts_path)
 
 
@@ -480,6 +484,7 @@ def _ingest_one(
 ) -> None:
     """Parse a local file, write docs page, ingest to llm-wiki, then archive."""
     try:
+        typer.echo(f"ingest: parsing {path}")
         source = parse_source(
             path,
             docling_artifacts_path=docling_artifacts_path or _resolve_docling_artifacts_path(project_dir, config),
@@ -497,6 +502,7 @@ def _ingest_one(
     if docs_link:
         typer.echo(f"Docs page written: {docs_link}")
 
+    typer.echo(f"ingest: generating wiki pages for {source.filename}")
     _ingest_one_parsed(source.filename, source.text, config, project_dir, docs_link=docs_link, is_update=is_update)
 
     raw_dir = (project_dir / config.paths.raw).resolve()
@@ -628,6 +634,15 @@ def _extract_docs_links(pages_text: str) -> list[str]:
     return list(dict.fromkeys(_DOCS_LINK_RE.findall(pages_text)))
 
 
+def _merge_relevant_pages(primary: list[str], fallback: list[str]) -> list[str]:
+    """Merge page lists while preserving order and removing duplicates."""
+    merged: list[str] = []
+    for page in [*primary, *fallback]:
+        if page not in merged:
+            merged.append(page)
+    return merged
+
+
 @app.command()
 def query(
     question: str = typer.Argument(..., help="Question to ask the wiki"),
@@ -638,14 +653,18 @@ def query(
     project_dir = find_project_dir(Path.cwd())
     config = load_config(project_dir)
     wiki_dir = project_dir / config.paths.wiki
+    docs_dir = project_dir / config.paths.docs if config.paths.docs else None
     schema_path = project_dir / config.paths.schema
     schema = schema_path.read_text() if schema_path.exists() else ""
     index_path = wiki_dir / "index.md"
     index = index_path.read_text() if index_path.exists() else ""
 
+    local_relevant = semantic_relevant_pages(project_dir, question, wiki_dir, docs_dir)
     if semantic:
-        relevant = semantic_relevant_pages(wiki_dir, question)
+        typer.echo(f"query: running local retrieval for {question!r}")
+        relevant = local_relevant
     else:
+        typer.echo(f"query: selecting relevant pages for {question!r}")
         # Step 1: identify relevant pages
         step1_messages = build_query_step1_messages(schema, index, question)
         try:
@@ -656,14 +675,16 @@ def query(
                 raise typer.Exit(1)
             raise
 
-        relevant = parse_relevant_pages(step1_response)
+        relevant = _merge_relevant_pages(parse_relevant_pages(step1_response), local_relevant)
     if not relevant:
         typer.echo("(LLM found no directly relevant pages — answering from index only)")
         pages_text = index
     else:
-        pages_text = read_wiki_pages(wiki_dir, relevant)
+        typer.echo(f"query: reading {len(relevant)} page(s)")
+        pages_text = read_project_pages(project_dir, relevant, wiki_dir, docs_dir)
 
     # Step 2: synthesize answer
+    typer.echo("query: asking the model to synthesize an answer")
     step2_messages = build_query_step2_messages(schema, pages_text, question)
     try:
         answer = call_llm(config, step2_messages)
@@ -676,6 +697,11 @@ def query(
     typer.echo(answer)
 
     docs_links = _extract_docs_links(pages_text)
+    docs_links.extend(
+        page for page in relevant
+        if docs_dir and page.startswith(f"{config.paths.docs}/")
+    )
+    docs_links = list(dict.fromkeys(docs_links))
     if docs_links:
         typer.echo("\n**Original documents:**")
         for link in docs_links:

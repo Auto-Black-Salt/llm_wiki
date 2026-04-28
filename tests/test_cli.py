@@ -66,7 +66,7 @@ def test_config_show(project_dir):
 def test_version_command():
     result = runner.invoke(app, ["version"], catch_exceptions=False)
     assert result.exit_code == 0
-    assert "llm-wiki 0.8.0" in result.output
+    assert "llm-wiki 0.9.1" in result.output
     assert "Version history: VERSION.md" in result.output
 
 
@@ -224,6 +224,9 @@ def test_ingest_file(project_dir, monkeypatch):
 
         result = runner.invoke(app, ["ingest", str(source)], catch_exceptions=False)
         assert result.exit_code == 0
+        assert "ingest: reading" in result.output
+        assert "ingest: parsing" in result.output
+        assert "ingest: generating wiki pages" in result.output
         assert (project_dir / "wiki" / "topic-a.md").exists()
         assert "Topic A" in (project_dir / "wiki" / "topic-a.md").read_text()
     finally:
@@ -246,6 +249,7 @@ def test_ingest_no_args_picks_up_new_files(project_dir, monkeypatch):
 
         result = runner.invoke(app, ["ingest"], catch_exceptions=False)
         assert result.exit_code == 0
+        assert "ingest: scanning" in result.output
         assert (project_dir / "wiki" / "notes.md").exists()
     finally:
         os.chdir(old_cwd)
@@ -300,6 +304,8 @@ def test_query_prints_answer(project_dir, monkeypatch):
 
         result = runner.invoke(app, ["query", "What is Topic A?"], catch_exceptions=False)
         assert result.exit_code == 0
+        assert "query: selecting relevant pages" in result.output
+        assert "query: asking the model to synthesize an answer" in result.output
         assert "Topic A" in result.output
     finally:
         os.chdir(old_cwd)
@@ -317,7 +323,37 @@ def test_query_semantic_uses_local_retrieval(project_dir, monkeypatch):
 
         result = runner.invoke(app, ["query", "--semantic", "apples and bananas"], catch_exceptions=False)
         assert result.exit_code == 0
+        assert "query: running local retrieval" in result.output
         assert "Semantic answer." in result.output
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_query_finds_docs_only_topics(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        docs_dir = project_dir / "obsidian_main" / "docs"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        (docs_dir / "Ops-DM.md").write_text(
+            "# Ops-DM\n\n## Triangle route example OS\n\n3 Legs OS 213 VIE - LEJ OS 213 LEJ - NUE OS 213 NUE - VIE\n"
+        )
+        (project_dir / "wiki" / "index.md").write_text("# Wiki Index\n")
+        (project_dir / "wiki" / "log.md").write_text("")
+
+        responses = iter([
+            "```relevant_pages\n```",
+            "Triangle route is documented in the original Ops-DM source.",
+        ])
+        monkeypatch.setattr("llm_wiki.cli.call_llm", lambda cfg, msgs: next(responses))
+
+        result = runner.invoke(app, ["query", "What do you know about Triangle route?"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "query: selecting relevant pages" in result.output
+        assert "query: reading" in result.output
+        assert "Triangle route is documented" in result.output
+        assert "Original documents" in result.output
+        assert "Ops-DM.md" in result.output
     finally:
         os.chdir(old_cwd)
 

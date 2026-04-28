@@ -2,6 +2,17 @@
 
 This file tracks the tool versions for the `llm-wiki` project.
 
+## 0.9.1
+
+- Made ingest summaries denser so source facts, routes, and examples are preserved better
+- Improved retrieval signal for large docs directories by keeping more useful detail in the generated pages
+
+## 0.9.0
+
+- Added docs-page retrieval to query so important phrases can come from source markdown
+- Merged local semantic fallback with the graph query path
+- Improved query results for topics that only appear in original documents
+
 ## 0.8.0
 
 - Added `llm-wiki query --semantic` with a local TF-IDF retrieval path
