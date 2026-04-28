@@ -1,6 +1,6 @@
 [llm]
 provider = "openai"
-model = "gemma-4-31b-jang_4m-crack"
+model = "qwen3.5-27b-claude-4.6-opus-distilled-mlx"
 base_url = "http://localhost:1234/v1"
 api_key = "lm-studio"
 

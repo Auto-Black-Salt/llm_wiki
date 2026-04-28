@@ -75,15 +75,74 @@ def test_doctor_reports_ok(project_dir, monkeypatch):
                 stderr='openjdk version "11.0.16.1" 2022-08-12\n',
             ),
         )
+        monkeypatch.setattr(
+            "llm_wiki.cli.httpx.get",
+            lambda url, timeout=10: type(
+                "Resp",
+                (),
+                {
+                    "raise_for_status": lambda self: None,
+                    "json": lambda self: {
+                        "data": [
+                            {"id": "local-model"},
+                            {"id": "gemma-4-31b-jang_4m-crack"},
+                        ]
+                    },
+                },
+            )(),
+        )
+        monkeypatch.setattr("llm_wiki.cli.typer.confirm", lambda *args, **kwargs: False)
         monkeypatch.setattr("llm_wiki.cli.call_llm", lambda cfg, msgs: "pong")
 
         result = runner.invoke(app, ["doctor"], catch_exceptions=False)
         assert result.exit_code == 0
         assert "opendataloader-pdf: OK" in result.output
+        assert "available models:" in result.output
         assert "java: OK" in result.output
         assert "llm: probing configured model (local-model)..." in result.output
         assert "llm: OK" in result.output
         assert "Everything looks good." in result.output
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_doctor_can_update_model(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        monkeypatch.setattr("llm_wiki.cli.importlib.util.find_spec", lambda name: object())
+        monkeypatch.setattr("llm_wiki.cli.shutil.which", lambda name: "/usr/bin/java")
+        monkeypatch.setattr(
+            "llm_wiki.cli.subprocess.run",
+            lambda *args, **kwargs: subprocess.CompletedProcess(
+                args=args[0],
+                returncode=0,
+                stdout="",
+                stderr='openjdk version "11.0.16.1" 2022-08-12\n',
+            ),
+        )
+        monkeypatch.setattr(
+            "llm_wiki.cli.httpx.get",
+            lambda url, timeout=10: type(
+                "Resp",
+                (),
+                {
+                    "raise_for_status": lambda self: None,
+                    "json": lambda self: {
+                        "data": [
+                            {"id": "local-model"},
+                            {"id": "gemma-4-31b-jang_4m-crack"},
+                        ]
+                    },
+                },
+            )(),
+        )
+        monkeypatch.setattr("llm_wiki.cli.call_llm", lambda cfg, msgs: "pong")
+
+        result = runner.invoke(app, ["doctor"], input="y\n2\n", catch_exceptions=False)
+        assert result.exit_code == 0
+        assert 'Updated config: model = "gemma-4-31b-jang_4m-crack"' in result.output
+        assert 'model = "gemma-4-31b-jang_4m-crack"' in (project_dir / ".wiki-config.toml").read_text()
     finally:
         os.chdir(old_cwd)
 

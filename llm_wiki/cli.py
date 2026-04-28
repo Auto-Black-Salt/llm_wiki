@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 import shutil
 import subprocess
+import click
 import typer
 import httpx
 from llm_wiki.config import load_config, find_project_dir
@@ -211,6 +212,26 @@ def doctor():
             typer.echo(f"java: error ({e})")
             problems.append(f"Could not execute java -version: {e}")
 
+    models = _fetch_available_models(config.llm.base_url)
+    if models:
+        typer.echo("available models:")
+        for idx, model_name in enumerate(models, start=1):
+            selected = " (current)" if model_name == config.llm.model else ""
+            typer.echo(f"  {idx}. {model_name}{selected}")
+
+        if typer.confirm("Change the configured model?", default=False):
+            choice = typer.prompt(
+                "Choose a model number",
+                type=click.IntRange(1, len(models)),
+            )
+            chosen_model = models[choice - 1]
+            _update_config_model(project_dir, chosen_model)
+            config.llm.model = chosen_model
+            typer.echo(f'Updated config: model = "{chosen_model}"')
+    else:
+        typer.echo("available models: none found")
+        problems.append("No models were returned by the configured LLM endpoint.")
+
     try:
         print(f"llm: probing configured model ({config.llm.model})...", flush=True)
         response = call_llm(
@@ -251,6 +272,43 @@ def _parse_java_major_version(version_output: str) -> int:
     if parts[0] == "1" and len(parts) > 1:
         return int(parts[1])
     return int(parts[0])
+
+
+def _fetch_available_models(base_url: str) -> list[str]:
+    """Fetch model IDs from an OpenAI-compatible /models endpoint."""
+    if not base_url:
+        return []
+    url = f"{base_url.rstrip('/')}/models"
+    try:
+        response = httpx.get(url, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as e:
+        typer.echo(f"available models: unable to query {url} ({e})")
+        return []
+
+    data = payload.get("data", []) if isinstance(payload, dict) else []
+    models: list[str] = []
+    for item in data:
+        if isinstance(item, dict) and item.get("id"):
+            models.append(item["id"])
+    return list(dict.fromkeys(models))
+
+
+def _update_config_model(project_dir: Path, model: str) -> None:
+    """Update the [llm].model entry in .wiki-config.toml in place."""
+    config_path = project_dir / ".wiki-config.toml"
+    text = config_path.read_text()
+    updated, count = _re.subn(
+        r'(^\s*model\s*=\s*")[^"]*(")',
+        rf'\1{model}\2',
+        text,
+        count=1,
+        flags=_re.MULTILINE,
+    )
+    if count != 1:
+        raise ValueError("Could not find [llm].model in .wiki-config.toml")
+    config_path.write_text(updated)
 
 
 @app.command()
