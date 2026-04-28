@@ -11,6 +11,26 @@ The workflow is:
 - write synthesized wiki pages into `obsidian_main/llm-wiki/`
 - query and lint the wiki through the CLI
 
+## Install
+
+Clone the repo, create a virtual environment with `uv`, and sync the dependencies:
+
+```bash
+git clone https://github.com/Auto-Black-Salt/llm_wiki.git
+cd llm_wiki
+uv venv
+uv sync
+source .venv/bin/activate
+```
+
+If you already have the repo checked out, just run:
+
+```bash
+uv venv
+uv sync
+source .venv/bin/activate
+```
+
 ## Quick Start
 
 ```bash
@@ -29,7 +49,7 @@ scripts/reingest_archive.sh
 ## What it does
 
 - Ingests local files or URLs
-- Converts PDFs to Markdown with `opendataloader-pdf`
+- Converts PDFs and office documents to Markdown with `docling`
 - Writes docs pages and wiki pages separately
 - Tracks ingests in `wiki/log.md`
 - Supports query, lint, status, config inspection, and environment checks
@@ -37,9 +57,8 @@ scripts/reingest_archive.sh
 ## Requirements
 
 - Python 3.11+
-- Java 11+ for PDF conversion
 - An LM Studio-compatible server on `http://localhost:1234/v1` by default
-- `opendataloader-pdf` installed in the active environment
+- `docling` installed in the active environment
 
 You can verify the environment with:
 
@@ -137,9 +156,7 @@ Then it replays every supported source in `archive/` through `llm-wiki ingest`.
 ## Doctor
 
 `llm-wiki doctor` checks:
-- whether `opendataloader-pdf` is installed
-- whether `java` is on PATH
-- whether Java is `11+`
+- whether `docling` is installed
 - whether the configured LLM endpoint responds
 
 It prints a visible probe line before the LLM request, so it is obvious when the check is running.

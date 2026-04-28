@@ -46,28 +46,64 @@ def test_parse_url_fetch_error():
             parse_source("https://example.com/article")
 
 
-def test_parse_pdf_uses_opendataloader(tmp_path, monkeypatch):
+def test_parse_pdf_uses_docling(tmp_path, monkeypatch):
     pdf_path = tmp_path / "paper.pdf"
     pdf_path.write_bytes(b"%PDF-1.4\n")
 
-    def fake_convert(*, input_path, output_dir, **kwargs):
-        assert input_path == [str(pdf_path)]
-        assert kwargs["format"] == "markdown"
-        assert kwargs["image_output"] == "off"
-        assert kwargs["use_struct_tree"] is True
-        assert kwargs["quiet"] is True
-        output = Path(output_dir) / "paper.md"
-        output.write_text("# Title\n\nConverted text")
+    class FakeDocument:
+        def export_to_markdown(self):
+            return "# Title\n\nConverted text"
 
-    fake_module = types.ModuleType("opendataloader_pdf")
-    fake_module.convert = fake_convert
-    monkeypatch.setitem(sys.modules, "opendataloader_pdf", fake_module)
+    class FakeResult:
+        document = FakeDocument()
+
+    class FakeConverter:
+        def convert(self, source):
+            assert source == str(pdf_path)
+            return FakeResult()
+
+    fake_docling = types.ModuleType("docling")
+    fake_converter_module = types.ModuleType("docling.document_converter")
+    fake_converter_module.DocumentConverter = lambda: FakeConverter()
+    monkeypatch.setitem(sys.modules, "docling", fake_docling)
+    monkeypatch.setitem(sys.modules, "docling.document_converter", fake_converter_module)
 
     result = parse_source(str(pdf_path))
 
     assert isinstance(result, ParsedSource)
     assert result.filename == "paper.pdf"
     assert result.text == "# Title\n\nConverted text"
+    assert result.images == []
+
+
+@pytest.mark.parametrize("ext", ["docx", "doc"])
+def test_parse_word_docs_uses_docling(tmp_path, monkeypatch, ext):
+    path = tmp_path / f"paper.{ext}"
+    path.write_bytes(b"fake document bytes")
+
+    class FakeDocument:
+        def export_to_markdown(self):
+            return "# Word Title\n\nConverted word text"
+
+    class FakeResult:
+        document = FakeDocument()
+
+    class FakeConverter:
+        def convert(self, source):
+            assert source == str(path)
+            return FakeResult()
+
+    fake_docling = types.ModuleType("docling")
+    fake_converter_module = types.ModuleType("docling.document_converter")
+    fake_converter_module.DocumentConverter = lambda: FakeConverter()
+    monkeypatch.setitem(sys.modules, "docling", fake_docling)
+    monkeypatch.setitem(sys.modules, "docling.document_converter", fake_converter_module)
+
+    result = parse_source(str(path))
+
+    assert isinstance(result, ParsedSource)
+    assert result.filename == path.name
+    assert result.text == "# Word Title\n\nConverted word text"
     assert result.images == []
 
 

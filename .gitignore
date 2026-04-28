@@ -8,6 +8,7 @@ uv.lock
 
 # Obsidian
 obsidian_main/
+raw/
 .trash/
 
 # Claude Code

@@ -1,5 +1,4 @@
 import os
-import subprocess
 import pytest
 from typer.testing import CliRunner
 from llm_wiki.cli import app
@@ -64,16 +63,9 @@ def test_doctor_reports_ok(project_dir, monkeypatch):
     old_cwd = os.getcwd()
     os.chdir(project_dir)
     try:
-        monkeypatch.setattr("llm_wiki.cli.importlib.util.find_spec", lambda name: object())
-        monkeypatch.setattr("llm_wiki.cli.shutil.which", lambda name: "/usr/bin/java")
         monkeypatch.setattr(
-            "llm_wiki.cli.subprocess.run",
-            lambda *args, **kwargs: subprocess.CompletedProcess(
-                args=args[0],
-                returncode=0,
-                stdout="",
-                stderr='openjdk version "11.0.16.1" 2022-08-12\n',
-            ),
+            "llm_wiki.cli.importlib.util.find_spec",
+            lambda name: object() if name == "docling" else None,
         )
         monkeypatch.setattr(
             "llm_wiki.cli.httpx.get",
@@ -96,9 +88,8 @@ def test_doctor_reports_ok(project_dir, monkeypatch):
 
         result = runner.invoke(app, ["doctor"], catch_exceptions=False)
         assert result.exit_code == 0
-        assert "opendataloader-pdf: OK" in result.output
+        assert "docling: OK" in result.output
         assert "available models:" in result.output
-        assert "java: OK" in result.output
         assert "llm: probing configured model (local-model)..." in result.output
         assert "llm: OK" in result.output
         assert "Everything looks good." in result.output
@@ -110,16 +101,9 @@ def test_doctor_can_update_model(project_dir, monkeypatch):
     old_cwd = os.getcwd()
     os.chdir(project_dir)
     try:
-        monkeypatch.setattr("llm_wiki.cli.importlib.util.find_spec", lambda name: object())
-        monkeypatch.setattr("llm_wiki.cli.shutil.which", lambda name: "/usr/bin/java")
         monkeypatch.setattr(
-            "llm_wiki.cli.subprocess.run",
-            lambda *args, **kwargs: subprocess.CompletedProcess(
-                args=args[0],
-                returncode=0,
-                stdout="",
-                stderr='openjdk version "11.0.16.1" 2022-08-12\n',
-            ),
+            "llm_wiki.cli.importlib.util.find_spec",
+            lambda name: object() if name == "docling" else None,
         )
         monkeypatch.setattr(
             "llm_wiki.cli.httpx.get",

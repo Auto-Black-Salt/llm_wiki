@@ -4,8 +4,6 @@ import re as _re
 from datetime import date
 from pathlib import Path
 from typing import Optional
-import shutil
-import subprocess
 import click
 import typer
 import httpx
@@ -43,7 +41,7 @@ def main(ctx: typer.Context):
     typer.echo("  query   Ask a question against the wiki")
     typer.echo("  lint    Check the wiki for contradictions, orphans, and gaps")
     typer.echo("  status  Show page counts and the last activity")
-    typer.echo("  doctor  Check the local runtime and PDF prerequisites")
+    typer.echo("  doctor  Check the local runtime, Docling, and LLM endpoint")
     typer.echo("")
     typer.echo("Examples:")
     typer.echo("  llm-wiki init")
@@ -182,35 +180,12 @@ def doctor():
 
     problems: list[str] = []
 
-    opendataloader_available = importlib.util.find_spec("opendataloader_pdf") is not None
-    if opendataloader_available:
-        typer.echo("opendataloader-pdf: OK")
+    docling_available = importlib.util.find_spec("docling") is not None
+    if docling_available:
+        typer.echo("docling: OK")
     else:
-        typer.echo("opendataloader-pdf: missing")
-        problems.append("Install opendataloader-pdf in the active environment.")
-
-    java_path = shutil.which("java")
-    if not java_path:
-        typer.echo("java: missing")
-        problems.append("Install Java 11+ and make sure it is on PATH.")
-    else:
-        try:
-            result = subprocess.run(
-                [java_path, "-version"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            version_output = result.stderr.strip() or result.stdout.strip()
-            major = _parse_java_major_version(version_output)
-            if major >= 11:
-                typer.echo(f"java: OK ({version_output.splitlines()[0]})")
-            else:
-                typer.echo(f"java: too old ({version_output.splitlines()[0]})")
-                problems.append(f"Java 11+ is required, but found version {major}.")
-        except Exception as e:
-            typer.echo(f"java: error ({e})")
-            problems.append(f"Could not execute java -version: {e}")
+        typer.echo("docling: missing")
+        problems.append("Install docling in the active environment.")
 
     models = _fetch_available_models(config.llm.base_url)
     if models:
@@ -261,17 +236,6 @@ def doctor():
 
     typer.echo("Everything looks good.")
     raise typer.Exit(0)
-
-
-def _parse_java_major_version(version_output: str) -> int:
-    """Extract the Java major version from `java -version` output."""
-    match = _re.search(r'version "([^"]+)"', version_output)
-    if not match:
-        return 0
-    parts = match.group(1).split(".")
-    if parts[0] == "1" and len(parts) > 1:
-        return int(parts[1])
-    return int(parts[0])
 
 
 def _fetch_available_models(base_url: str) -> list[str]:

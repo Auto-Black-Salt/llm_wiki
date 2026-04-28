@@ -1,6 +1,5 @@
 import hashlib
 import re
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -27,10 +26,8 @@ def parse_source(path_or_url: str) -> ParsedSource:
             return _fetch_youtube(path_or_url)
         return _fetch_url(path_or_url)
     path = Path(path_or_url)
-    if path.suffix.lower() == ".pdf":
-        return _parse_pdf(path)
-    if path.suffix.lower() in (".docx", ".doc"):
-        return _parse_docx(path)
+    if path.suffix.lower() in (".pdf", ".docx", ".doc"):
+        return _parse_docling(path)
     return ParsedSource(filename=path.name, text=path.read_text())
 
 
@@ -112,76 +109,23 @@ def _fetch_url(url: str) -> ParsedSource:
     return ParsedSource(filename=filename, text=text, raw_bytes=response.content)
 
 
-def _parse_docx(path: Path) -> ParsedSource:
-    import docx  # lazy import — only needed for Word docs
-    doc = docx.Document(str(path))
-    parts = []
-    images = []
-    img_counter = 0
-
-    for para in doc.paragraphs:
-        if para.text.strip():
-            parts.append(para.text)
-
-    # Extract images from the document's inline shapes / relationships
-    for rel in doc.part.rels.values():
-        if "image" in rel.reltype:
-            img_data = rel.target_part.blob
-            ext = rel.target_part.content_type.split("/")[-1]
-            if ext == "jpeg":
-                ext = "jpg"
-            img_counter += 1
-            img_filename = f"{path.stem}-img{img_counter}.{ext}"
-            images.append((img_filename, img_data))
-            parts.append(f"![[assets/{img_filename}]]")
-
-    return ParsedSource(filename=path.name, text="\n".join(parts), images=images)
-
-
-def _parse_pdf(path: Path) -> ParsedSource:
+def _parse_docling(path: Path) -> ParsedSource:
     try:
-        import opendataloader_pdf  # lazy import — only needed for PDFs
+        from docling.document_converter import DocumentConverter
     except ModuleNotFoundError as e:
         raise ValueError(
-            "PDF parsing requires the 'opendataloader-pdf' package. "
-            "Install it and make sure Java 11+ is available."
+            "Document conversion requires the 'docling' package. "
+            "Install it in the active environment."
         ) from e
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        try:
-            opendataloader_pdf.convert(
-                input_path=[str(path)],
-                output_dir=tmpdir,
-                format="markdown",
-                image_output="off",
-                use_struct_tree=True,
-                quiet=True,
-            )
-        except FileNotFoundError as e:
-            raise ValueError(
-                "OpenDataLoader PDF requires Java 11+. "
-                "Install a JDK and ensure 'java' is on PATH."
-            ) from e
-        except Exception as e:
-            raise ValueError(f"Could not convert PDF {path} with OpenDataLoader PDF: {e}") from e
+    try:
+        converter = DocumentConverter()
+        result = converter.convert(str(path))
+        text = result.document.export_to_markdown()
+    except Exception as e:
+        raise ValueError(f"Could not convert {path} with Docling: {e}") from e
 
-        output_dir = Path(tmpdir)
-        markdown_path = _find_markdown_output(output_dir, path.stem)
-        if markdown_path is None:
-            raise ValueError(f"OpenDataLoader PDF did not produce Markdown output for {path}")
+    if not text.strip():
+        raise ValueError(f"Docling produced empty Markdown for {path}")
 
-        return ParsedSource(filename=path.name, text=markdown_path.read_text())
-
-
-def _find_markdown_output(output_dir: Path, stem: str) -> Optional[Path]:
-    """Find the Markdown file produced for a converted PDF."""
-    exact_matches = sorted(output_dir.rglob(f"{stem}.md"))
-    if exact_matches:
-        return exact_matches[0]
-
-    markdown_files = sorted(output_dir.rglob("*.md"))
-    if len(markdown_files) == 1:
-        return markdown_files[0]
-    if markdown_files:
-        return markdown_files[0]
-    return None
+    return ParsedSource(filename=path.name, text=text)
