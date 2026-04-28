@@ -60,7 +60,7 @@ Built with [Typer](https://typer.tiangolo.com/) for automatic `--help` generatio
 | Type | Library |
 |------|---------|
 | `.txt`, `.md` | stdlib `open()` |
-| `.pdf` | `pymupdf` |
+| `.pdf` | `opendataloader-pdf` |
 | Web URL | `httpx` + `readability-lxml` (extracts main article content) |
 
 Web URLs: raw HTML saved to `raw/<slug>-<hash>.html`, extracted text sent to LLM.
@@ -154,7 +154,7 @@ lint
 ```
 typer          # CLI framework
 litellm        # multi-provider LLM abstraction
-pymupdf        # PDF parsing
+opendataloader-pdf  # PDF parsing
 httpx          # async HTTP client for web fetch
 readability-lxml  # article extraction from HTML
 tomllib        # config parsing (stdlib in Python 3.11+)

@@ -1,8 +1,11 @@
 import hashlib
+import importlib.util
 import re as _re
 from datetime import date
 from pathlib import Path
 from typing import Optional
+import shutil
+import subprocess
 import typer
 import httpx
 from llm_wiki.config import load_config, find_project_dir
@@ -18,6 +21,36 @@ from llm_wiki.sources import parse_source, chunk_text
 from llm_wiki.wiki import parse_wiki_blocks, write_wiki_blocks, get_ingested_sources, read_wiki_pages
 
 app = typer.Typer(help="LLM Wiki — maintain a personal knowledge wiki with an LLM.")
+config_app = typer.Typer(help="Inspect the active project configuration.")
+
+
+app.add_typer(config_app, name="config")
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context):
+    """Show a short command guide when the CLI is invoked without a subcommand."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    typer.echo("Usage: llm-wiki <command> [options]")
+    typer.echo("")
+    typer.echo("Available commands:")
+    typer.echo("  init    Scaffold a new wiki project in the current directory")
+    typer.echo("  config  Inspect the active project configuration")
+    typer.echo("  ingest  Ingest a source file, URL, or all new files in raw/")
+    typer.echo("  query   Ask a question against the wiki")
+    typer.echo("  lint    Check the wiki for contradictions, orphans, and gaps")
+    typer.echo("  status  Show page counts and the last activity")
+    typer.echo("  doctor  Check the local runtime and PDF prerequisites")
+    typer.echo("")
+    typer.echo("Examples:")
+    typer.echo("  llm-wiki init")
+    typer.echo("  llm-wiki config show")
+    typer.echo("  llm-wiki doctor")
+    typer.echo("  llm-wiki ingest archive/example.pdf")
+    typer.echo("  llm-wiki query 'What changed?'\n")
+    raise typer.Exit(1)
 
 _DEFAULT_CONFIG = """\
 [llm]
@@ -110,6 +143,114 @@ def init():
     typer.echo("  docs/        <- original documents as Markdown (with images)")
     typer.echo("  wiki/        <- LLM-summarized pages (don't edit manually)")
     typer.echo("  schema.md    <- LLM instructions (customize as you go)")
+
+
+@config_app.command("show")
+def config_show():
+    """Print the active project config."""
+    project_dir = find_project_dir(Path.cwd())
+    config = load_config(project_dir)
+    config_path = project_dir / ".wiki-config.toml"
+
+    typer.echo(f"Project: {project_dir}")
+    typer.echo(f"Config:   {config_path}")
+    typer.echo("")
+    typer.echo("[llm]")
+    typer.echo(f'provider = "{config.llm.provider}"')
+    typer.echo(f'model = "{config.llm.model}"')
+    typer.echo(f'base_url = "{config.llm.base_url}"')
+    typer.echo(f'api_key = "{config.llm.api_key}"')
+    typer.echo("")
+    typer.echo("[paths]")
+    typer.echo(f'raw = "{config.paths.raw}"')
+    typer.echo(f'wiki = "{config.paths.wiki}"')
+    typer.echo(f'schema = "{config.paths.schema}"')
+    typer.echo(f'docs = "{config.paths.docs}"')
+
+
+@app.command()
+def doctor():
+    """Check the project config and local runtime prerequisites."""
+    project_dir = find_project_dir(Path.cwd())
+    config = load_config(project_dir)
+
+    typer.echo(f"Project: {project_dir}")
+    typer.echo(f"Model:   {config.llm.model}")
+    typer.echo(f"Base URL: {config.llm.base_url}")
+    typer.echo("")
+
+    problems: list[str] = []
+
+    opendataloader_available = importlib.util.find_spec("opendataloader_pdf") is not None
+    if opendataloader_available:
+        typer.echo("opendataloader-pdf: OK")
+    else:
+        typer.echo("opendataloader-pdf: missing")
+        problems.append("Install opendataloader-pdf in the active environment.")
+
+    java_path = shutil.which("java")
+    if not java_path:
+        typer.echo("java: missing")
+        problems.append("Install Java 11+ and make sure it is on PATH.")
+    else:
+        try:
+            result = subprocess.run(
+                [java_path, "-version"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            version_output = result.stderr.strip() or result.stdout.strip()
+            major = _parse_java_major_version(version_output)
+            if major >= 11:
+                typer.echo(f"java: OK ({version_output.splitlines()[0]})")
+            else:
+                typer.echo(f"java: too old ({version_output.splitlines()[0]})")
+                problems.append(f"Java 11+ is required, but found version {major}.")
+        except Exception as e:
+            typer.echo(f"java: error ({e})")
+            problems.append(f"Could not execute java -version: {e}")
+
+    try:
+        print(f"llm: probing configured model ({config.llm.model})...", flush=True)
+        response = call_llm(
+            config,
+            [
+                {
+                    "role": "user",
+                    "content": "Reply with exactly: pong",
+                }
+            ],
+        )
+        if "pong" in response.lower():
+            typer.echo("llm: OK")
+        else:
+            typer.echo(f"llm: unexpected response ({response!r})")
+            problems.append("The configured LLM responded, but not with the expected probe output.")
+    except Exception as e:
+        typer.echo(f"llm: error ({e})")
+        problems.append(f"Could not reach the configured LLM: {e}")
+
+    typer.echo("")
+    if problems:
+        typer.echo("Problems:")
+        for problem in problems:
+            typer.echo(f"- {problem}")
+        raise typer.Exit(1)
+
+    typer.echo("Everything looks good.")
+    raise typer.Exit(0)
+
+
+def _parse_java_major_version(version_output: str) -> int:
+    """Extract the Java major version from `java -version` output."""
+    match = _re.search(r'version "([^"]+)"', version_output)
+    if not match:
+        return 0
+    parts = match.group(1).split(".")
+    if parts[0] == "1" and len(parts) > 1:
+        return int(parts[1])
+    return int(parts[0])
 
 
 @app.command()

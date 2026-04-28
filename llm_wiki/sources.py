@@ -1,5 +1,6 @@
 import hashlib
 import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -137,130 +138,50 @@ def _parse_docx(path: Path) -> ParsedSource:
     return ParsedSource(filename=path.name, text="\n".join(parts), images=images)
 
 
-_DOT_LEADER_RE = re.compile(r'\.{4,}')
-_ORPHAN_BULLET_RE = re.compile(r'^([•·▪▸]|\d+\.)$')
-
-
-def _is_toc_page(page) -> bool:
-    """Return True if the page is mostly TOC dot-leader lines."""
-    lines = [l.strip() for l in page.get_text().splitlines() if l.strip()]
-    if not lines:
-        return False
-    toc_lines = sum(1 for l in lines if _DOT_LEADER_RE.search(l))
-    return toc_lines / len(lines) > 0.3
-
-
-def _bbox_overlaps(a: tuple, b: tuple) -> bool:
-    """Return True if two (x0, y0, x1, y1) bboxes overlap."""
-    return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
-
-
-def _fix_lists(text: str) -> str:
-    """Join orphaned bullet/number paragraphs with the following paragraph."""
-    paras = text.split("\n\n")
-    result = []
-    i = 0
-    while i < len(paras):
-        stripped = paras[i].strip()
-        if _ORPHAN_BULLET_RE.match(stripped):
-            # Find next non-empty paragraph
-            j = i + 1
-            while j < len(paras) and not paras[j].strip():
-                j += 1
-            if j < len(paras):
-                prefix = "- " if stripped in ('•', '·', '▪', '▸') else stripped + " "
-                result.append(prefix + paras[j].strip())
-                i = j + 1
-                continue
-        result.append(paras[i])
-        i += 1
-    return "\n\n".join(result)
-
-
-def _page_to_text(page) -> str:
-    """Extract page text with tables as Markdown and lists reconstructed."""
-    try:
-        tabs = page.find_tables()
-        table_regions = [
-            (t.bbox, re.sub(r'<br\s*/?>', ' ', t.to_markdown()))
-            for t in tabs.tables
-        ]
-    except Exception:
-        table_regions = []
-
-    table_bboxes = [bbox for bbox, _ in table_regions]
-
-    # Collect non-table text blocks with x and y for sorting and grouping
-    pieces: list[tuple[float, float, str]] = []  # (y0, x0, text)
-    for block in page.get_text("blocks"):
-        x0, y0, x1, y1, text, _, block_type = block
-        if block_type != 0:
-            continue
-        text = text.strip()
-        if not text:
-            continue
-        if any(_bbox_overlaps((x0, y0, x1, y1), tb) for tb in table_bboxes):
-            continue
-        pieces.append((y0, x0, text))
-
-    # Add tables at their vertical position
-    for bbox, md in table_regions:
-        pieces.append((bbox[1], bbox[0], md))
-
-    # Sort by y then x so bullet comes before its text on the same line
-    pieces.sort(key=lambda p: (p[0], p[1]))
-
-    # Merge blocks that share the same vertical position (within 5pt) onto one line.
-    # Never merge multiline content (tables) — they must stay as their own paragraph.
-    lines: list[tuple[float, str]] = []
-    for y, _x, text in pieces:
-        is_table = "\n" in text
-        prev_is_table = lines and "\n" in lines[-1][1]
-        if lines and not is_table and not prev_is_table and abs(y - lines[-1][0]) < 5:
-            lines[-1] = (lines[-1][0], lines[-1][1] + " " + text)
-        else:
-            lines.append((y, text))
-
-    raw = "\n\n".join(text for _, text in lines)
-    return _fix_lists(raw)
-
-
-def _build_markdown_toc(toc: list) -> str:
-    """Convert pymupdf TOC [(level, title, page), ...] to clean Markdown."""
-    if not toc:
-        return ""
-    lines = ["## Table of Contents\n"]
-    for level, title, page in toc:
-        indent = "  " * (level - 1)
-        lines.append(f"{indent}- {title} *(p.{page})*")
-    return "\n".join(lines)
-
-
 def _parse_pdf(path: Path) -> ParsedSource:
-    import pymupdf  # lazy import — only needed for PDFs
-    doc = pymupdf.open(str(path))
-    pages_text = []
-    images = []
-    seen_xrefs: set[int] = set()
-    for page in doc:
-        if _is_toc_page(page):
-            continue  # replaced by clean Markdown TOC below
-        pages_text.append(_page_to_text(page))
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            if xref in seen_xrefs:
-                continue
-            seen_xrefs.add(xref)
-            img_data = doc.extract_image(xref)
-            ext = img_data["ext"]
-            img_filename = f"{path.stem}-img{len(images) + 1}.{ext}"
-            images.append((img_filename, img_data["image"]))
-            pages_text.append(f"![[assets/{img_filename}]]")
+    try:
+        import opendataloader_pdf  # lazy import — only needed for PDFs
+    except ModuleNotFoundError as e:
+        raise ValueError(
+            "PDF parsing requires the 'opendataloader-pdf' package. "
+            "Install it and make sure Java 11+ is available."
+        ) from e
 
-    clean_text = "\n\n".join(pages_text)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            opendataloader_pdf.convert(
+                input_path=[str(path)],
+                output_dir=tmpdir,
+                format="markdown",
+                image_output="off",
+                use_struct_tree=True,
+                quiet=True,
+            )
+        except FileNotFoundError as e:
+            raise ValueError(
+                "OpenDataLoader PDF requires Java 11+. "
+                "Install a JDK and ensure 'java' is on PATH."
+            ) from e
+        except Exception as e:
+            raise ValueError(f"Could not convert PDF {path} with OpenDataLoader PDF: {e}") from e
 
-    toc_md = _build_markdown_toc(doc.get_toc())
-    if toc_md:
-        clean_text = toc_md + "\n\n---\n\n" + clean_text
+        output_dir = Path(tmpdir)
+        markdown_path = _find_markdown_output(output_dir, path.stem)
+        if markdown_path is None:
+            raise ValueError(f"OpenDataLoader PDF did not produce Markdown output for {path}")
 
-    return ParsedSource(filename=path.name, text=clean_text, images=images)
+        return ParsedSource(filename=path.name, text=markdown_path.read_text())
+
+
+def _find_markdown_output(output_dir: Path, stem: str) -> Optional[Path]:
+    """Find the Markdown file produced for a converted PDF."""
+    exact_matches = sorted(output_dir.rglob(f"{stem}.md"))
+    if exact_matches:
+        return exact_matches[0]
+
+    markdown_files = sorted(output_dir.rglob("*.md"))
+    if len(markdown_files) == 1:
+        return markdown_files[0]
+    if markdown_files:
+        return markdown_files[0]
+    return None

@@ -93,7 +93,7 @@ def test_call_llm(config):
         result = call_llm(config, [{"role": "user", "content": "test"}])
     assert result == "response text"
     call_kwargs = mock_completion.call_args.kwargs
-    assert call_kwargs["model"] == "local-model"
+    assert call_kwargs["model"] == "openai/local-model"
     assert call_kwargs["api_base"] == "http://localhost:1234/v1"
     assert call_kwargs["api_key"] == "lm-studio"
 

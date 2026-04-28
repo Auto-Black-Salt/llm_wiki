@@ -1,4 +1,6 @@
 import pytest
+import sys
+import types
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from llm_wiki.sources import parse_source, ParsedSource, chunk_text
@@ -42,6 +44,31 @@ def test_parse_url_fetch_error():
     with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
         with pytest.raises(httpx.ConnectError):
             parse_source("https://example.com/article")
+
+
+def test_parse_pdf_uses_opendataloader(tmp_path, monkeypatch):
+    pdf_path = tmp_path / "paper.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+
+    def fake_convert(*, input_path, output_dir, **kwargs):
+        assert input_path == [str(pdf_path)]
+        assert kwargs["format"] == "markdown"
+        assert kwargs["image_output"] == "off"
+        assert kwargs["use_struct_tree"] is True
+        assert kwargs["quiet"] is True
+        output = Path(output_dir) / "paper.md"
+        output.write_text("# Title\n\nConverted text")
+
+    fake_module = types.ModuleType("opendataloader_pdf")
+    fake_module.convert = fake_convert
+    monkeypatch.setitem(sys.modules, "opendataloader_pdf", fake_module)
+
+    result = parse_source(str(pdf_path))
+
+    assert isinstance(result, ParsedSource)
+    assert result.filename == "paper.pdf"
+    assert result.text == "# Title\n\nConverted text"
+    assert result.images == []
 
 
 def test_chunk_text_short():

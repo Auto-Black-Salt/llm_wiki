@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12",
     "litellm>=1.40",
-    "pymupdf>=1.24",
+    "opendataloader-pdf>=2.2.1",
     "python-docx>=1.1",
     "youtube-transcript-api>=0.6",
     "httpx>=0.27",

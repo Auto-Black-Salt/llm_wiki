@@ -1,9 +1,19 @@
 import os
+import subprocess
 import pytest
 from typer.testing import CliRunner
 from llm_wiki.cli import app
 
 runner = CliRunner()
+
+
+def test_cli_without_command_shows_usage():
+    result = runner.invoke(app, [], catch_exceptions=False)
+    assert result.exit_code == 1
+    assert "Usage: llm-wiki <command> [options]" in result.output
+    assert "Available commands:" in result.output
+    assert "ingest" in result.output
+    assert "query" in result.output
 
 
 def test_init_creates_structure(tmp_path):
@@ -33,6 +43,47 @@ def test_init_does_not_overwrite_existing_config(tmp_path):
         (tmp_path / ".wiki-config.toml").write_text("custom = true\n")
         runner.invoke(app, ["init"])
         assert "custom = true" in (tmp_path / ".wiki-config.toml").read_text()
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_config_show(project_dir):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        result = runner.invoke(app, ["config", "show"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "Project:" in result.output
+        assert "model = \"local-model\"" in result.output
+        assert "wiki = \"wiki\"" in result.output
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_doctor_reports_ok(project_dir, monkeypatch):
+    old_cwd = os.getcwd()
+    os.chdir(project_dir)
+    try:
+        monkeypatch.setattr("llm_wiki.cli.importlib.util.find_spec", lambda name: object())
+        monkeypatch.setattr("llm_wiki.cli.shutil.which", lambda name: "/usr/bin/java")
+        monkeypatch.setattr(
+            "llm_wiki.cli.subprocess.run",
+            lambda *args, **kwargs: subprocess.CompletedProcess(
+                args=args[0],
+                returncode=0,
+                stdout="",
+                stderr='openjdk version "11.0.16.1" 2022-08-12\n',
+            ),
+        )
+        monkeypatch.setattr("llm_wiki.cli.call_llm", lambda cfg, msgs: "pong")
+
+        result = runner.invoke(app, ["doctor"], catch_exceptions=False)
+        assert result.exit_code == 0
+        assert "opendataloader-pdf: OK" in result.output
+        assert "java: OK" in result.output
+        assert "llm: probing configured model (local-model)..." in result.output
+        assert "llm: OK" in result.output
+        assert "Everything looks good." in result.output
     finally:
         os.chdir(old_cwd)
 
