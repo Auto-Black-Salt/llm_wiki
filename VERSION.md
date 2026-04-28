@@ -2,6 +2,13 @@
 
 This file tracks the tool versions for the `llm-wiki` project.
 
+## 0.6.0
+
+- Kept source document images in `obsidian_main/docs/assets/<document>/`
+- Rewrote absolute Docling image paths to relative Obsidian links
+- Stripped image markdown from the knowledge-graph wiki pages
+- Preserved docs pages as a human-readable source layer alongside the wiki summary layer
+
 ## 0.5.0
 
 - Switched document conversion to Docling for PDFs and office documents
@@ -15,4 +22,3 @@ This file tracks the tool versions for the `llm-wiki` project.
 - Initial CLI scaffolding
 - Basic ingest, query, lint, and status commands
 - Raw source handling and wiki output directories
-

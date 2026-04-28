@@ -67,7 +67,7 @@ def test_config_show(project_dir):
 def test_version_command():
     result = runner.invoke(app, ["version"], catch_exceptions=False)
     assert result.exit_code == 0
-    assert "llm-wiki 0.5.0" in result.output
+    assert "llm-wiki 0.6.0" in result.output
     assert "Version history: VERSION.md" in result.output
 
 
