@@ -2,6 +2,12 @@
 
 This file tracks the tool versions for the `llm-wiki` project.
 
+## 0.9.3
+
+- Extracted embedded pictures from PDF ingestion so docs pages match the DOCX behaviour
+- Preserved code-block line breaks in PDF docs pages via Docling code enrichment
+- URL-encoded image paths so docs with spaces (or other special characters) render correctly in Obsidian and standard Markdown viewers
+
 ## 0.9.2
 
 - Reduced query prompt size by extracting focused excerpts from large docs pages

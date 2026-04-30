@@ -447,6 +447,9 @@ def _write_docling_docs_page(
         pipeline_options = PdfPipelineOptions(
             artifacts_path=docling_artifacts_path,
             enable_remote_services=False,
+            generate_picture_images=True,
+            images_scale=2.0,
+            do_code_enrichment=True,
         )
         format_options[InputFormat.PDF] = PdfFormatOption(
             pipeline_options=pipeline_options
@@ -463,6 +466,9 @@ def _write_docling_docs_page(
     _rewrite_docs_asset_links(page_path, assets_dir)
 
 
+_IMAGE_LINK_RE = _re.compile(r'(!\[[^\]]*\]\()([^)]+)(\))')
+
+
 def _rewrite_docs_asset_links(page_path: Path, assets_dir: Path) -> None:
     """Normalize Docling image links to be relative to the docs page."""
     page_text = page_path.read_text()
@@ -471,7 +477,16 @@ def _rewrite_docs_asset_links(page_path: Path, assets_dir: Path) -> None:
     page_text = page_text.replace(asset_root, relative_root)
     if asset_root != str(assets_dir):
         page_text = page_text.replace(str(assets_dir.resolve()), relative_root)
+    page_text = _IMAGE_LINK_RE.sub(_encode_local_image_url, page_text)
     page_path.write_text(page_text)
+
+
+def _encode_local_image_url(match: "_re.Match[str]") -> str:
+    from urllib.parse import quote
+    prefix, url, suffix = match.group(1), match.group(2), match.group(3)
+    if "://" in url:
+        return match.group(0)
+    return f"{prefix}{quote(url, safe='/')}{suffix}"
 
 
 
